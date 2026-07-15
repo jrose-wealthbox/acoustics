@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const A = require('../src/acoustics.js');
 
 test('solver policy obeys Courant stability and reports a conservative band', () => {
@@ -180,4 +181,102 @@ test('modal tolerance requires positive finite frequencies', () => {
     name: 'TypeError', message: /transformBinHz.*finite number/i,
   });
   assert.throws(() => A.modalTolerance(100, Infinity), TypeError);
+});
+
+test('wavelength rejects overflow and underflow in its derived result', () => {
+  assert.throws(() => A.wavelength(Number.MIN_VALUE, 343), {
+    name: 'RangeError', message: /wavelength.*finite positive/i,
+  });
+  assert.throws(() => A.wavelength(1e308, Number.MIN_VALUE), {
+    name: 'RangeError', message: /wavelength.*finite positive/i,
+  });
+});
+
+test('solver policy rejects non-finite or unsafe derived grid values', () => {
+  assert.throws(() => A.solverPolicy({ width: 1e308, height: 7 }, 'standard', 343), {
+    name: 'RangeError', message: /widthCells.*positive safe integer/i,
+  });
+  assert.throws(() => A.solverPolicy({ width: 10, height: 1e308 }, 'standard', 343), {
+    name: 'RangeError', message: /heightCells.*positive safe integer/i,
+  });
+  assert.throws(() => A.solverPolicy(
+    { width: 7_500_000, height: 7_500_000 },
+    'standard',
+    343,
+  ), {
+    name: 'RangeError', message: /cellCount.*positive safe integer/i,
+  });
+  assert.throws(() => A.solverPolicy(
+    { width: 10, height: 7 },
+    'standard',
+    Number.MIN_VALUE,
+  ), {
+    name: 'RangeError', message: /dt.*finite positive/i,
+  });
+  assert.throws(() => A.solverPolicy({ width: 10, height: 7 }, 'high', 1e308), {
+    name: 'RangeError', message: /reliableHz.*finite positive/i,
+  });
+});
+
+test('rectangular modes reject dimensions that derive non-finite first modes', () => {
+  assert.throws(() => A.rectangularModes(
+    { width: 1e-308, depth: 7, height: 2.5 },
+    100,
+    343,
+  ), {
+    name: 'RangeError', message: /width.*first mode.*finite positive/i,
+  });
+});
+
+test('rectangular modes use stable magnitudes when squared ratios would overflow', () => {
+  const modes = A.rectangularModes(
+    { width: 1e-155, depth: 1e-155, height: 1e-155 },
+    2e157,
+    343,
+  );
+
+  assert.equal(modes.length, 3);
+  assert.ok(modes.every(mode => mode.type === 'axial'));
+  assert.ok(modes.every(mode => Number.isFinite(mode.frequency)));
+});
+
+const assertModalCallRejectsPromptly = callSource => {
+  const modulePath = require.resolve('../src/acoustics.js');
+  const script = `
+    const A = require(${JSON.stringify(modulePath)});
+    try {
+      ${callSource}
+      process.exitCode = 2;
+    } catch (error) {
+      if (error instanceof RangeError) process.stdout.write(error.message);
+      else throw error;
+    }
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    timeout: 500,
+  });
+
+  assert.equal(
+    result.status,
+    0,
+    `modal call did not reject promptly: ${result.signal || result.stderr}`,
+  );
+  assert.match(result.stdout, /modal candidate|derived/i);
+};
+
+test('rectangular modes reject an impractical finite cutoff before enumeration', () => {
+  assertModalCallRejectsPromptly(`
+    A.rectangularModes({ width: 10, depth: 7, height: 2.5 }, 1e308, 343);
+  `);
+});
+
+test('rectangular modes reject a finite speed that underflows derived values', () => {
+  assertModalCallRejectsPromptly(`
+    A.rectangularModes(
+      { width: 10, depth: 7, height: 2.5 },
+      100,
+      Number.MIN_VALUE,
+    );
+  `);
 });

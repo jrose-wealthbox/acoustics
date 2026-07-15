@@ -4,6 +4,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis, function () {
   const QUALITY_DX = Object.freeze({ fast: 0.15, standard: 0.075, high: 0.05 });
+  const MAX_MODE_CANDIDATES = 160000;
 
   const requireObject = (value, name) => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -19,11 +20,28 @@
     requireFiniteNumber(value, name);
     if (value <= 0) throw new RangeError(`${name} must be greater than zero.`);
   };
+  const requireFinitePositiveDerived = (value, name) => {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new RangeError(`${name} must be a finite positive derived value.`);
+    }
+  };
+  const requireFiniteNonnegativeDerived = (value, name) => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(`${name} must be a finite nonnegative derived value.`);
+    }
+  };
+  const requirePositiveSafeInteger = (value, name) => {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new RangeError(`${name} must be a positive safe integer.`);
+    }
+  };
 
   const wavelength = (frequency, speed) => {
     requirePositiveNumber(frequency, 'frequency');
     requirePositiveNumber(speed, 'speed');
-    return speed / frequency;
+    const result = speed / frequency;
+    requireFinitePositiveDerived(result, 'wavelength');
+    return result;
   };
   const reflectionAmplitude = absorption => {
     requireFiniteNumber(absorption, 'absorption');
@@ -47,15 +65,22 @@
     const dt = 0.9 * dx / (speed * Math.sqrt(2));
     const widthCells = Math.ceil(width / dx);
     const heightCells = Math.ceil(height / dx);
+    requirePositiveSafeInteger(widthCells, 'widthCells');
+    requirePositiveSafeInteger(heightCells, 'heightCells');
+    const cellCount = widthCells * heightCells;
+    requirePositiveSafeInteger(cellCount, 'cellCount');
+    requireFinitePositiveDerived(dt, 'dt');
+    const reliableHz = speed / (10 * dx);
+    requireFinitePositiveDerived(reliableHz, 'reliableHz');
     return {
       dx,
       dt,
       widthCells,
       heightCells,
-      cellCount: widthCells * heightCells,
+      cellCount,
       stabilityMargin: 0.9,
-      reliableHz: speed / (10 * dx),
-      allowed: widthCells * heightCells <= 160000,
+      reliableHz,
+      allowed: cellCount <= 160000,
     };
   };
 
@@ -67,12 +92,40 @@
     requirePositiveNumber(maxHz, 'maxHz');
     requirePositiveNumber(speed, 'speed');
 
+    const halfSpeed = speed / 2;
+    requireFinitePositiveDerived(halfSpeed, 'rectangularModes derived half speed');
+    for (const dimensionName of ['width', 'depth', 'height']) {
+      const firstMode = halfSpeed / dimensions[dimensionName];
+      requireFinitePositiveDerived(
+        firstMode,
+        `dimensions.${dimensionName} first mode frequency`,
+      );
+    }
+
+    const candidateScale = maxHz / halfSpeed;
+    requireFinitePositiveDerived(candidateScale, 'rectangularModes derived candidate scale');
+    const candidateLimit = (dimensionName, axisName) => {
+      const rawLimit = candidateScale * dimensions[dimensionName];
+      requireFinitePositiveDerived(rawLimit, `modal candidate ${axisName} limit`);
+      const limit = Math.ceil(rawLimit);
+      requirePositiveSafeInteger(limit, `modal candidate ${axisName} limit`);
+      return limit;
+    };
+
     const modes = [];
     // Ceil admits at most one extra index per axis for the cutoff check to reject, and avoids
     // dropping a boundary mode when its analytically integral ratio rounds just below an integer.
-    const maxNx = Math.ceil(2 * maxHz * dimensions.width / speed);
-    const maxNy = Math.ceil(2 * maxHz * dimensions.depth / speed);
-    const maxNz = Math.ceil(2 * maxHz * dimensions.height / speed);
+    const maxNx = candidateLimit('width', 'nx');
+    const maxNy = candidateLimit('depth', 'ny');
+    const maxNz = candidateLimit('height', 'nz');
+    const candidateCount = (maxNx + 1) * (maxNy + 1) * (maxNz + 1);
+    // Modal enumeration allocates one object per retained tuple; bounding candidates at the
+    // wave-cell gate keeps malformed direct calls from monopolizing the main thread or worker.
+    if (!Number.isSafeInteger(candidateCount) || candidateCount > MAX_MODE_CANDIDATES) {
+      throw new RangeError(
+        `modal candidate count must be a safe integer no greater than ${MAX_MODE_CANDIDATES}.`,
+      );
+    }
 
     for (let nx = 0; nx <= maxNx; nx += 1) {
       for (let ny = 0; ny <= maxNy; ny += 1) {
@@ -80,11 +133,16 @@
           const nonZeroIndices = Number(nx > 0) + Number(ny > 0) + Number(nz > 0);
           if (nonZeroIndices === 0) continue;
 
-          const frequency = speed / 2 * Math.sqrt(
-            (nx / dimensions.width) ** 2
-            + (ny / dimensions.depth) ** 2
-            + (nz / dimensions.height) ** 2,
-          );
+          const xRatio = nx / dimensions.width;
+          const yRatio = ny / dimensions.depth;
+          const zRatio = nz / dimensions.height;
+          requireFiniteNonnegativeDerived(xRatio, 'modal nx/width ratio');
+          requireFiniteNonnegativeDerived(yRatio, 'modal ny/depth ratio');
+          requireFiniteNonnegativeDerived(zRatio, 'modal nz/height ratio');
+          const magnitude = Math.hypot(xRatio, yRatio, zRatio);
+          requireFinitePositiveDerived(magnitude, 'modal ratio magnitude');
+          const frequency = halfSpeed * magnitude;
+          requireFinitePositiveDerived(frequency, 'modal frequency');
           // Equivalent modal formulas can straddle a cutoff by a few ULPs, so preserve an
           // analytically inclusive boundary without admitting meaningfully higher modes.
           const cutoffError = Number.EPSILON * Math.max(1, frequency, maxHz) * 4;
