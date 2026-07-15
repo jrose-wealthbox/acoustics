@@ -280,3 +280,24 @@ test('rectangular modes reject a finite speed that underflows derived values', (
     );
   `);
 });
+
+test('sub-hertz modal cutoffs do not admit modes through a one-hertz tolerance floor', () => {
+  const maxHz = 1e-307;
+  const modes = A.rectangularModes(
+    { width: 1e308, depth: 1e308, height: 1e308 },
+    maxHz,
+    343,
+  );
+  const toleranceFor = frequency => Math.max(
+    Number.MIN_VALUE,
+    Number.EPSILON * Math.max(Math.abs(frequency), Math.abs(maxHz)) * 4,
+  );
+
+  assert.ok(modes.every(mode => mode.frequency - maxHz <= toleranceFor(mode.frequency)));
+  assert.deepEqual(
+    modes.filter(mode => mode.frequency / maxHz >= 17),
+    [],
+    'modes 17–30× above the cutoff must not be admitted',
+  );
+  assert.equal(modes.length, 0);
+});

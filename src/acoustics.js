@@ -143,9 +143,13 @@
           requireFinitePositiveDerived(magnitude, 'modal ratio magnitude');
           const frequency = halfSpeed * magnitude;
           requireFinitePositiveDerived(frequency, 'modal frequency');
-          // Equivalent modal formulas can straddle a cutoff by a few ULPs, so preserve an
-          // analytically inclusive boundary without admitting meaningfully higher modes.
-          const cutoffError = Number.EPSILON * Math.max(1, frequency, maxHz) * 4;
+          // Equivalent modal formulas can straddle a cutoff by a few ULPs. Scale the allowance
+          // to the compared frequencies so tiny cutoffs never inherit a material absolute floor.
+          const cutoffScale = Math.max(Math.abs(frequency), Math.abs(maxHz));
+          const cutoffError = Math.max(
+            Number.MIN_VALUE,
+            Number.EPSILON * cutoffScale * 4,
+          );
           if (frequency - maxHz > cutoffError) continue;
 
           modes.push({
