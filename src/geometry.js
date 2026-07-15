@@ -3,6 +3,7 @@
   root.RoomWave = Object.assign(root.RoomWave || {}, api);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis, function () {
+  const MAX_ROOM_SPAN = 30;
   const cellKey = (x, y) => `${x},${y}`;
   const parseCell = key => key.split(',').map(Number);
   const neighbors = ([x, y]) => [
@@ -58,6 +59,9 @@
 
     const first = parseCell(cells.values().next().value);
     const connected = flood(first, point => cells.has(cellKey(...point))).size === cells.size;
+    // Disconnected imported geometry can have enormous bounds; no hole result is useful until connectivity is valid.
+    if (!connected) return { connected: false, hasHole: false };
+
     const bounds = roomBounds(cells);
     const outside = flood(
       [bounds.minX - 1, bounds.minY - 1],
@@ -79,6 +83,8 @@
   };
 
   const applyCellStroke = (cells, points) => {
+    if (!points.length) return { cells, error: null };
+
     const next = new Set(cells);
     const firstKey = cellKey(points[0].x, points[0].y);
     const remove = next.has(firstKey);
@@ -86,6 +92,11 @@
       const key = cellKey(x, y);
       if (remove) next.delete(key);
       else next.add(key);
+    }
+
+    const bounds = roomBounds(next);
+    if (bounds.maxX - bounds.minX > MAX_ROOM_SPAN || bounds.maxY - bounds.minY > MAX_ROOM_SPAN) {
+      return { cells, error: 'Room cannot exceed 30 × 30 m.' };
     }
 
     const topology = analyzeTopology(next);
