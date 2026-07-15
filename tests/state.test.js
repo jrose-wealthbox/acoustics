@@ -344,6 +344,41 @@ test('source configure protects identity and accepts only mutable source control
   );
 });
 
+test('source configure atomically rejects explicitly malformed numeric controls', () => {
+  const added = S.reduceProject(S.createDefaultProject(), {
+    type: 'source/add',
+    source: sourceFixture(),
+  });
+
+  for (const changes of [
+    { z: Number.NaN, gainDb: 4 },
+    { gainDb: '4', delayMs: 5 },
+    { delayMs: undefined, rotation: 45 },
+    { rotation: Infinity, gainDb: 4 },
+  ]) {
+    const rejected = S.reduceProject(added, {
+      type: 'source/configure', id: 'speaker-1', changes,
+    });
+    assert.equal(rejected.sources, added.sources);
+    assert.deepEqual(rejected.sources[0], sourceFixture());
+    assert.match(rejected.ui.message, /finite|controls/i);
+  }
+
+  let history = S.createHistory(added);
+  const past = history.past;
+  const future = history.future;
+  history = S.dispatchHistory(history, {
+    type: 'source/configure',
+    id: 'speaker-1',
+    changes: { gainDb: 4, delayMs: Number.NaN },
+  });
+
+  assert.deepEqual(history.present.sources[0], sourceFixture());
+  assert.match(history.present.ui.message, /finite|controls/i);
+  assert.equal(history.past, past);
+  assert.equal(history.future, future);
+});
+
 test('source move and remove target exactly one stable identity', () => {
   let project = S.reduceProject(S.createDefaultProject(), {
     type: 'source/add', source: sourceFixture(),

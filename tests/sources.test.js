@@ -75,6 +75,18 @@ test('source responses stop at nominal hard limits', () => {
   assert.equal(A.sourceResponseDb('full-range', Number.NaN), -Infinity);
 });
 
+test('catalog lookups reject inherited object prototype names', () => {
+  for (const type of ['__proto__', 'constructor', 'hasOwnProperty']) {
+    const source = { type, gainDb: 0, delayMs: 0, polarity: 'normal' };
+
+    assert.equal(A.sourceResponseDb(type, 80), -Infinity);
+    assert.equal(A.directionalGain(type, 0), 0);
+    assert.deepEqual(A.sourceComplexGain(source, 80), { real: 0, imaginary: 0 });
+    assert.equal(A.sourceCategory(type), null);
+    assert.equal(A.canAddSource([], type).ok, false);
+  }
+});
+
 test('nominal 90 degree directivity interpolates exact dB control points', () => {
   const gainDb = angle => 20 * Math.log10(A.directionalGain('bookshelf', angle));
 
@@ -88,7 +100,7 @@ test('nominal 90 degree directivity interpolates exact dB control points', () =>
   assert.equal(A.directionalGain('lp-subwoofer', -12), 1);
 });
 
-test('complex source gain returns Cartesian response, delay, and polarity', () => {
+test('complex source gain uses e^-iwt Cartesian response, gain, delay, and polarity', () => {
   const source = {
     type: 'bookshelf',
     gainDb: 0,
@@ -102,6 +114,12 @@ test('complex source gain returns Cartesian response, delay, and polarity', () =
   assert.ok(Math.abs(normal.imaginary - 1) < 1e-12);
   assert.ok(Math.abs(inverted.real) < 1e-12);
   assert.ok(Math.abs(inverted.imaginary + 1) < 1e-12);
+
+  const boosted = A.sourceComplexGain({
+    ...source, gainDb: 6, delayMs: 0,
+  }, 100);
+  assert.ok(Math.abs(boosted.real - (10 ** (6 / 20))) < 1e-12);
+  assert.ok(Math.abs(boosted.imaginary) < 1e-12);
 
   const filtered = A.sourceComplexGain({
     type: 'hp-bookshelf', gainDb: 0, delayMs: 0, polarity: 'normal',

@@ -55,6 +55,12 @@
       || (typeof action[key] === 'number' && Number.isFinite(action[key]))
     ))
   );
+  const hasValidProvidedSourceNumericControls = changes => (
+    ['z', 'gainDb', 'delayMs', 'rotation'].every(key => (
+      !Object.hasOwn(changes, key)
+      || (typeof changes[key] === 'number' && Number.isFinite(changes[key]))
+    ))
+  );
 
   const createDefaultProject = () => ({
     schemaVersion: RoomWave.SCHEMA_VERSION,
@@ -234,6 +240,9 @@
         || Object.keys(changes).some(key => !SOURCE_CONFIG_KEYS.has(key))
       ) {
         return withMessage(project, 'Source identity and metadata cannot be configured.');
+      }
+      if (!hasValidProvidedSourceNumericControls(changes)) {
+        return withMessage(project, 'Source controls must contain valid finite values.');
       }
       if (
         'polarity' in changes

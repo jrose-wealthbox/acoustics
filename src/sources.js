@@ -56,8 +56,14 @@
     }),
   });
 
+  const sourceDefinition = type => (
+    typeof type === 'string' && Object.hasOwn(SOURCE_TYPES, type)
+      ? SOURCE_TYPES[type]
+      : null
+  );
+
   const sourceResponseDb = (type, frequency) => {
-    const definition = SOURCE_TYPES[type];
+    const definition = sourceDefinition(type);
     if (
       !definition
       || typeof frequency !== 'number'
@@ -85,7 +91,7 @@
   ]);
 
   const directionalGain = (type, angleRadians) => {
-    const definition = SOURCE_TYPES[type];
+    const definition = sourceDefinition(type);
     if (!definition || typeof angleRadians !== 'number' || !Number.isFinite(angleRadians)) return 0;
     if (definition.directivity === 'omni') return 1;
 
@@ -103,6 +109,8 @@
 
   /**
    * Returns source gain in Cartesian complex form: `{ real, imaginary }`.
+   * Phasors use e^(-iwt) time dependence, so a delay of t seconds contributes
+   * the positive phase +2πft used here. Downstream solvers must preserve this sign.
    */
   const sourceComplexGain = (source, frequency) => {
     const responseDb = sourceResponseDb(source?.type, frequency);
@@ -117,7 +125,7 @@
     };
   };
 
-  const sourceCategory = type => SOURCE_TYPES[type]?.category || null;
+  const sourceCategory = type => sourceDefinition(type)?.category || null;
 
   const CATEGORY_LIMITS = Object.freeze({ speaker: 10, subwoofer: 4 });
   const canAddSource = (sources, type) => {
