@@ -192,6 +192,26 @@ test('source add requires stable nonempty identities and rejects duplicate IDs',
   }
 });
 
+test('source add atomically rejects malformed generic controls', () => {
+  const project = S.createDefaultProject();
+  const malformedSources = [
+    sourceFixture({ x: undefined }),
+    sourceFixture({ y: '2' }),
+    sourceFixture({ z: Number.NaN }),
+    sourceFixture({ gainDb: 'loud' }),
+    sourceFixture({ delayMs: undefined }),
+    sourceFixture({ rotation: Infinity }),
+    sourceFixture({ polarity: 'sideways' }),
+  ];
+
+  for (const source of malformedSources) {
+    const rejected = S.reduceProject(project, { type: 'source/add', source });
+    assert.deepEqual(rejected.sources, []);
+    assert.match(rejected.ui.message, /controls/i);
+    assert.equal(source.type, 'future-catalog-type');
+  }
+});
+
 test('source configure protects identity and accepts only mutable source controls', () => {
   const added = S.reduceProject(S.createDefaultProject(), {
     type: 'source/add',
@@ -288,6 +308,9 @@ test('analysis settings accept only their exact approved domains', () => {
     ['view', 'reflections'],
     ['advancedFrequency', 1],
     ['unknown', 'value'],
+    ['toString', 'value'],
+    ['constructor', 'value'],
+    ['hasOwnProperty', 'value'],
   ]) {
     const history = S.createHistory(defaults);
     assert.equal(S.dispatchHistory(history, { type: 'analysis/set', key, value }), history);

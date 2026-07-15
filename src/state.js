@@ -4,12 +4,12 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis, function (RoomWave) {
   const SOURCE_CONFIG_KEYS = new Set(['z', 'gainDb', 'delayMs', 'polarity', 'rotation']);
-  const ANALYSIS_DOMAINS = {
-    mapResolution: [0.1, 0.25, 0.5, 1],
-    quality: ['fast', 'standard', 'high'],
-    view: ['broadband', 'coherent', 'paths'],
-    advancedFrequency: [false, true],
-  };
+  const ANALYSIS_DOMAINS = new Map([
+    ['mapResolution', [0.1, 0.25, 0.5, 1]],
+    ['quality', ['fast', 'standard', 'high']],
+    ['view', ['broadband', 'coherent', 'paths']],
+    ['advancedFrequency', [false, true]],
+  ]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const numericControl = (value, fallback, min, max) => {
     const number = Number(value);
@@ -32,6 +32,11 @@
     && typeof source.type === 'string'
     && source.type.length > 0
     && source.type === source.type.trim()
+  );
+  const hasValidSourceControls = source => (
+    ['x', 'y', 'z', 'gainDb', 'delayMs', 'rotation']
+      .every(key => typeof source[key] === 'number' && Number.isFinite(source[key]))
+    && (source.polarity === 'normal' || source.polarity === 'inverted')
   );
 
   const createDefaultProject = () => ({
@@ -154,6 +159,9 @@
           'Source identity requires nonempty id and type strings without surrounding whitespace.',
         );
       }
+      if (!hasValidSourceControls(action.source)) {
+        return withMessage(project, 'Source controls must contain valid finite values.');
+      }
       if (project.sources.some(source => source.id === action.source.id)) {
         return withMessage(project, 'Source IDs must be unique.');
       }
@@ -240,7 +248,7 @@
       let value = action.value;
       if (action.key === 'frequency') {
         value = numericControl(value, project.analysis.frequency, 20, 200);
-      } else if (!ANALYSIS_DOMAINS[action.key]?.includes(value)) return project;
+      } else if (!ANALYSIS_DOMAINS.get(action.key)?.includes(value)) return project;
       if (project.analysis[action.key] === value) return project;
       return { ...project, analysis: { ...project.analysis, [action.key]: value } };
     }
