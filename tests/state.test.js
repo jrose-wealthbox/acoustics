@@ -283,6 +283,72 @@ test('source move and remove target exactly one stable identity', () => {
   assert.equal(S.reduceProject(removed, { type: 'source/remove', id: 'missing' }), removed);
 });
 
+test('source move preserves omitted coordinates and rejects malformed coordinates without history', () => {
+  const added = S.reduceProject(S.createDefaultProject(), {
+    type: 'source/add', source: sourceFixture(),
+  });
+  const xOnly = S.reduceProject(added, {
+    type: 'source/move', id: 'speaker-1', x: 4,
+  });
+  const zOnly = S.reduceProject(added, {
+    type: 'source/move', id: 'speaker-1', z: 20,
+  });
+
+  assert.deepEqual(xOnly.sources[0], { ...added.sources[0], x: 4 });
+  assert.deepEqual(zOnly.sources[0], { ...added.sources[0], z: 2.4 });
+
+  for (const coordinates of [
+    { x: Number.NaN },
+    { y: '4' },
+    { z: Infinity },
+    { x: undefined },
+  ]) {
+    const rejected = S.reduceProject(added, {
+      type: 'source/move', id: 'speaker-1', ...coordinates,
+    });
+    assert.equal(rejected.sources, added.sources);
+    assert.match(rejected.ui.message, /coordinates/i);
+  }
+
+  let history = S.createHistory(S.createDefaultProject());
+  history = S.dispatchHistory(history, { type: 'source/add', source: sourceFixture() });
+  const past = history.past;
+  history = S.dispatchHistory(history, {
+    type: 'source/move', id: 'speaker-1', x: Number.NaN,
+  });
+  assert.equal(history.past, past);
+  assert.deepEqual(history.present.sources[0], sourceFixture());
+  assert.match(history.present.ui.message, /coordinates/i);
+});
+
+test('listening move preserves omitted coordinates and rejects malformed coordinates without history', () => {
+  const project = S.createDefaultProject();
+  const xOnly = S.reduceProject(project, { type: 'listening/move', x: 7 });
+  const zOnly = S.reduceProject(project, { type: 'listening/move', z: 20 });
+
+  assert.deepEqual(xOnly.listeningPoint, { x: 7, y: 3.5, z: 1.2 });
+  assert.deepEqual(zOnly.listeningPoint, { x: 5, y: 3.5, z: 2.4 });
+  assert.equal(S.reduceProject(project, { type: 'listening/move' }), project);
+
+  for (const coordinates of [
+    { x: Number.NaN },
+    { y: '4' },
+    { z: Infinity },
+    { y: undefined },
+  ]) {
+    const rejected = S.reduceProject(project, { type: 'listening/move', ...coordinates });
+    assert.equal(rejected.listeningPoint, project.listeningPoint);
+    assert.match(rejected.ui.message, /coordinates/i);
+  }
+
+  let history = S.createHistory(project);
+  const past = history.past;
+  history = S.dispatchHistory(history, { type: 'listening/move', y: '4' });
+  assert.equal(history.past, past);
+  assert.equal(history.present.listeningPoint, project.listeningPoint);
+  assert.match(history.present.ui.message, /coordinates/i);
+});
+
 test('analysis settings accept only their exact approved domains', () => {
   const defaults = S.createDefaultProject();
   const domains = {

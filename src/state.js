@@ -38,6 +38,12 @@
       .every(key => typeof source[key] === 'number' && Number.isFinite(source[key]))
     && (source.polarity === 'normal' || source.polarity === 'inverted')
   );
+  const hasValidProvidedCoordinates = action => (
+    ['x', 'y', 'z'].every(key => (
+      !Object.hasOwn(action, key)
+      || (typeof action[key] === 'number' && Number.isFinite(action[key]))
+    ))
+  );
 
   const createDefaultProject = () => ({
     schemaVersion: RoomWave.SCHEMA_VERSION,
@@ -173,6 +179,9 @@
     }
 
     if (action.type === 'source/move') {
+      if (!hasValidProvidedCoordinates(action)) {
+        return withMessage(project, 'Source coordinates must be finite numbers.');
+      }
       return updateSource(project, action.id, source => {
         const next = normalizeSourceControls({
           ...source,
@@ -225,10 +234,13 @@
     }
 
     if (action.type === 'listening/move') {
+      if (!hasValidProvidedCoordinates(action)) {
+        return withMessage(project, 'Listening-point coordinates must be finite numbers.');
+      }
       const listeningPoint = {
         ...project.listeningPoint,
-        x: action.x,
-        y: action.y,
+        x: action.x ?? project.listeningPoint.x,
+        y: action.y ?? project.listeningPoint.y,
         z: numericControl(
           action.z ?? project.listeningPoint.z,
           project.listeningPoint.z,
