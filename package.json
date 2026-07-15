@@ -1,0 +1,9 @@
+{
+  "name": "room-wave-acoustic-simulator",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": { "node": ">=20" }
+}

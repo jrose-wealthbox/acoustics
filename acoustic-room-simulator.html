@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Room/Wave</title><style>:root { color-scheme: dark; --blueprint:#07111f; --panel:#0d1829; --grid:#1b3652; --drawing:#e2e8f0; --wave:#38bdf8; --pressure:#fb923c; }
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; color:var(--drawing); background:var(--blueprint); font-family:system-ui,sans-serif; }
+:focus-visible { outline:2px solid var(--wave); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto !important; animation-duration:0.001ms !important; transition-duration:0.001ms !important; } }
+</style></head>
+<body><main id="app"><h1>Room/Wave</h1><p id="boot-status">Loading acoustic workbench…</p></main><script>globalThis.__ROOM_WAVE_WORKER_SOURCE__ = "(function (root, factory) {\n  const api = factory(root.RoomWave || {});\n  root.RoomWave = Object.assign(root.RoomWave || {}, api);\n  if (typeof module !== 'undefined' && module.exports) module.exports = api;\n})(globalThis, function () {\n  const SCHEMA_VERSION = 1;\n  const SPEED_OF_SOUND = 343;\n  return { SCHEMA_VERSION, SPEED_OF_SOUND };\n});\n\n\n\n\n\n\n\n\nRoomWave.installWorker(globalThis);";</script><script>(function (root, factory) {
+  const api = factory(root.RoomWave || {});
+  root.RoomWave = Object.assign(root.RoomWave || {}, api);
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(globalThis, function () {
+  const SCHEMA_VERSION = 1;
+  const SPEED_OF_SOUND = 343;
+  return { SCHEMA_VERSION, SPEED_OF_SOUND };
+});
+
+
+
+
+
+
+
+
+
+
+
+
+</script></body>
+</html>
