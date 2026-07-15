@@ -14,6 +14,7 @@
   });
   const MAX_ROOM_SPAN = 30;
   const MAX_ROOM_CELLS = MAX_ROOM_SPAN * MAX_ROOM_SPAN;
+  const MAX_GRID_COORDINATE = Number.MAX_SAFE_INTEGER - MAX_ROOM_SPAN;
 
   const errorMessage = error => {
     try {
@@ -107,6 +108,15 @@
     return value;
   };
 
+  const requireGridCoordinate = (value, path) => {
+    if (!Number.isSafeInteger(value) || Math.abs(value) > MAX_GRID_COORDINATE) {
+      reject(
+        `${path} must be a safe integer grid coordinate with ${MAX_ROOM_SPAN} cells of arithmetic headroom.`,
+      );
+    }
+    return value;
+  };
+
   const parseCells = room => {
     if (!Array.isArray(room.cells) || room.cells.length === 0) {
       reject('room.cells must be a nonempty array.');
@@ -120,8 +130,10 @@
       const cell = room.cells[index];
       const path = `room.cells[${index}]`;
       requireKeys(cell, path, ['x', 'y']);
-      const x = requireNumber(cell.x, `${path}.x`, -Infinity, Infinity, { integer: true });
-      const y = requireNumber(cell.y, `${path}.y`, -Infinity, Infinity, { integer: true });
+      // Version 1 cell coordinates are absolute world-grid indices relative to a fixed (0, 0)
+      // origin. There is deliberately no separately mutable or persisted grid-origin field.
+      const x = requireGridCoordinate(cell.x, `${path}.x`);
+      const y = requireGridCoordinate(cell.y, `${path}.y`);
       const key = `${x},${y}`;
       if (cells.has(key)) reject(`${path} duplicates another room cell.`);
       cells.add(key);
@@ -196,6 +208,9 @@
   const validateProject = document => {
     requireRecord(document, 'project');
     if (!Object.hasOwn(document, 'schemaVersion')) reject('project.schemaVersion is required.');
+    if (typeof document.schemaVersion !== 'number' || !Number.isInteger(document.schemaVersion)) {
+      reject('project.schemaVersion must be an integer.');
+    }
     if (document.schemaVersion !== RoomWave.SCHEMA_VERSION) {
       reject(`Unsupported schema version ${String(document.schemaVersion)}.`);
     }
@@ -318,9 +333,10 @@
         return { ok: false, value: null, error: 'Unknown storage collection.' };
       }
       try {
+        const stored = adapter.getItem(key);
         return {
           ok: true,
-          value: JSON.parse(adapter.getItem(key) || '[]'),
+          value: stored === null ? [] : JSON.parse(stored),
           error: null,
         };
       } catch (error) {
