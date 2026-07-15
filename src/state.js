@@ -34,9 +34,20 @@
     && source.type === source.type.trim()
   );
   const hasValidSourceControls = source => (
-    ['x', 'y', 'z', 'gainDb', 'delayMs', 'rotation']
-      .every(key => typeof source[key] === 'number' && Number.isFinite(source[key]))
-    && (source.polarity === 'normal' || source.polarity === 'inverted')
+    ['x', 'y'].every(key => (
+      Object.hasOwn(source, key)
+      && typeof source[key] === 'number'
+      && Number.isFinite(source[key])
+    ))
+    && ['z', 'gainDb', 'delayMs', 'rotation'].every(key => (
+      !Object.hasOwn(source, key)
+      || (typeof source[key] === 'number' && Number.isFinite(source[key]))
+    ))
+    && (
+      !Object.hasOwn(source, 'polarity')
+      || source.polarity === 'normal'
+      || source.polarity === 'inverted'
+    )
   );
   const hasValidProvidedCoordinates = action => (
     ['x', 'y', 'z'].every(key => (
@@ -87,6 +98,14 @@
     }
     return next;
   };
+
+  const sourceControlDefaults = type => ({
+    z: RoomWave.sourceCategory(type) === 'subwoofer' ? 0.3 : 1.1,
+    gainDb: 0,
+    delayMs: 0,
+    polarity: 'normal',
+    rotation: 0,
+  });
 
   const updateSource = (project, id, update) => {
     const index = project.sources.findIndex(source => source.id === id);
@@ -165,14 +184,19 @@
           'Source identity requires nonempty id and type strings without surrounding whitespace.',
         );
       }
+      if (!RoomWave.SOURCE_TYPES || !Object.hasOwn(RoomWave.SOURCE_TYPES, action.source.type)) {
+        return withMessage(project, 'Source type must match the source catalog.');
+      }
       if (!hasValidSourceControls(action.source)) {
         return withMessage(project, 'Source controls must contain valid finite values.');
       }
       if (project.sources.some(source => source.id === action.source.id)) {
         return withMessage(project, 'Source IDs must be unique.');
       }
+      const allowed = RoomWave.canAddSource(project.sources, action.source.type);
+      if (!allowed.ok) return withMessage(project, allowed.error);
       const source = normalizeSourceControls(
-        action.source,
+        { ...sourceControlDefaults(action.source.type), ...action.source },
         project.room.ceilingHeight,
       );
       return { ...project, sources: [...project.sources, source] };

@@ -5,12 +5,13 @@ Object.assign(
   globalThis.RoomWave ||= {},
   require('../src/namespace.js'),
   require('../src/geometry.js'),
+  require('../src/sources.js'),
 );
 const S = require('../src/state.js');
 
 const sourceFixture = (overrides = {}) => ({
   id: 'speaker-1',
-  type: 'future-catalog-type',
+  type: 'bookshelf',
   x: 1,
   y: 2,
   z: 1.1,
@@ -171,7 +172,7 @@ test('source add requires stable nonempty identities and rejects duplicate IDs',
   const added = S.reduceProject(project, { type: 'source/add', source: sourceFixture() });
   const duplicate = S.reduceProject(added, {
     type: 'source/add',
-    source: sourceFixture({ type: 'another-future-type', x: 8 }),
+    source: sourceFixture({ x: 8 }),
   });
 
   assert.equal(duplicate.sources.length, 1);
@@ -208,8 +209,86 @@ test('source add atomically rejects malformed generic controls', () => {
     const rejected = S.reduceProject(project, { type: 'source/add', source });
     assert.deepEqual(rejected.sources, []);
     assert.match(rejected.ui.message, /controls/i);
-    assert.equal(source.type, 'future-catalog-type');
+    assert.equal(source.type, 'bookshelf');
   }
+});
+
+test('source add accepts only catalog types and applies type-specific defaults', () => {
+  const project = S.createDefaultProject();
+  const speaker = S.reduceProject(project, {
+    type: 'source/add',
+    source: { id: 'speaker-1', type: 'bookshelf', x: 1, y: 2 },
+  });
+  const subwoofer = S.reduceProject(speaker, {
+    type: 'source/add',
+    source: { id: 'sub-1', type: 'subwoofer', x: 3, y: 4 },
+  });
+
+  assert.deepEqual(speaker.sources[0], {
+    id: 'speaker-1',
+    type: 'bookshelf',
+    x: 1,
+    y: 2,
+    z: 1.1,
+    gainDb: 0,
+    delayMs: 0,
+    polarity: 'normal',
+    rotation: 0,
+  });
+  assert.deepEqual(subwoofer.sources[1], {
+    id: 'sub-1',
+    type: 'subwoofer',
+    x: 3,
+    y: 4,
+    z: 0.3,
+    gainDb: 0,
+    delayMs: 0,
+    polarity: 'normal',
+    rotation: 0,
+  });
+
+  let history = S.createHistory(project);
+  const past = history.past;
+  history = S.dispatchHistory(history, {
+    type: 'source/add',
+    source: sourceFixture({ type: 'future-catalog-type' }),
+  });
+  assert.deepEqual(history.present.sources, []);
+  assert.match(history.present.ui.message, /catalog|source type/i);
+  assert.equal(history.past, past);
+});
+
+test('source add enforces independent category limits without consuming history', () => {
+  let history = S.createHistory(S.createDefaultProject(), 50);
+  for (let index = 0; index < 10; index += 1) {
+    history = S.dispatchHistory(history, {
+      type: 'source/add',
+      source: { id: `speaker-${index}`, type: 'bookshelf', x: index, y: 1 },
+    });
+  }
+  const speakerPast = history.past;
+  history = S.dispatchHistory(history, {
+    type: 'source/add',
+    source: { id: 'speaker-over-limit', type: 'full-range', x: 1, y: 2 },
+  });
+  assert.equal(history.present.sources.length, 10);
+  assert.match(history.present.ui.message, /at most 10 speaker/i);
+  assert.equal(history.past, speakerPast);
+
+  for (let index = 0; index < 4; index += 1) {
+    history = S.dispatchHistory(history, {
+      type: 'source/add',
+      source: { id: `sub-${index}`, type: 'lp-subwoofer', x: index, y: 2 },
+    });
+  }
+  const subwooferPast = history.past;
+  history = S.dispatchHistory(history, {
+    type: 'source/add',
+    source: { id: 'sub-over-limit', type: 'subwoofer', x: 1, y: 3 },
+  });
+  assert.equal(history.present.sources.length, 14);
+  assert.match(history.present.ui.message, /at most 4 subwoofer/i);
+  assert.equal(history.past, subwooferPast);
 });
 
 test('source configure protects identity and accepts only mutable source controls', () => {
