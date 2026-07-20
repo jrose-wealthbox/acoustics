@@ -416,7 +416,10 @@
     }
     const nearest = Math.round(ratio);
     const tolerance = Number.EPSILON * Math.max(1, Math.abs(ratio)) * 8;
-    const count = (Math.abs(ratio - nearest) <= tolerance ? nearest : Math.ceil(ratio)) + 1;
+    // A scalar `resolution` can only describe a uniform square lattice. When the source span is
+    // not divisible by that spacing, retain interior lattice points and omit the short terminal
+    // remainder rather than clamping a final sample whose advertised coordinate would be false.
+    const count = (Math.abs(ratio - nearest) <= tolerance ? nearest : Math.floor(ratio)) + 1;
     requireSafeCount(count, `${name} output cell count`);
     return count;
   };
@@ -455,13 +458,13 @@
     // this loop bounded by the same 160k-cell gate prevents display resolution from becoming a
     // second unbounded analysis workload.
     for (let y = 0; y < height; y += 1) {
-      const pointY = Math.min(metadata.maxY, metadata.originY + y * resolution);
+      const pointY = metadata.originY + y * resolution;
       for (let x = 0; x < width; x += 1) {
-        const pointX = Math.min(metadata.maxX, metadata.originX + x * resolution);
+        const pointX = metadata.originX + x * resolution;
         const index = y * width + x;
         const coordinates = interpolationCoordinates(field, metadata, { x: pointX, y: pointY });
         for (const key of SCALAR_FIELDS) {
-          if (output[key] !== undefined) output[key][index] = bilinear(field[key], field.width, coordinates);
+          if (field[key] !== undefined) output[key][index] = bilinear(field[key], field.width, coordinates);
         }
         if (field.real !== undefined) {
           const real = bilinear(field.real, field.width, coordinates);

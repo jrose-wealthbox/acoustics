@@ -57,6 +57,20 @@ test('broadband weights include source response and raised-cosine model overlap'
   assert.deepEqual(ray, beforeRay);
 });
 
+test('raised-cosine overlap uses exact endpoints and nonlinear quarter weights', () => {
+  const combineAt = frequency => A.combineBroadbandBands([{
+    frequency,
+    waveEnergy: new Float64Array([0]),
+    rayEnergy: new Float64Array([4]),
+    overlap: { startHz: 100, endHz: 200 },
+    weight: 1,
+  }])[0];
+
+  assert.equal(combineAt(100), 0);
+  assert.equal(combineAt(200), 4);
+  assert.ok(Math.abs(combineAt(125) - 4 * ((1 - Math.cos(Math.PI / 4)) / 2)) < 1e-12);
+});
+
 test('broadband aggregation rejects malformed energy and weights atomically', () => {
   assert.throws(() => A.combineBroadbandBands([]), /nonempty/i);
   assert.throws(() => A.combineBroadbandBands([
@@ -166,6 +180,74 @@ test('sampling interpolates coherent components before deriving phase', () => {
     magnitude: 0,
     phase: 0,
   });
+});
+
+test('map resampling derives magnitude and phase for Cartesian-only fields', () => {
+  const field = {
+    width: 2,
+    height: 2,
+    dx: 1,
+    originX: 0,
+    originY: 0,
+    real: new Float64Array([1, 1, -1, -1]),
+    imaginary: new Float64Array(4),
+  };
+  const before = structuredClone(field);
+
+  const result = A.resampleMap(field, 0.5);
+
+  assert.equal(result.real[4], 0);
+  assert.equal(result.imaginary[4], 0);
+  assert.equal(result.magnitude[4], 0);
+  assert.equal(result.phase[4], 0);
+  assert.deepEqual(field, before);
+});
+
+test('non-divisible resampling uses one honest uniform interior grid', () => {
+  const field = {
+    width: 4,
+    height: 4,
+    dx: 0.1,
+    originX: 0,
+    originY: 0,
+    energy: new Float64Array([
+      0, 0.1, 0.2, 0.3,
+      0.1, 0.2, 0.3, 0.4,
+      0.2, 0.3, 0.4, 0.5,
+      0.3, 0.4, 0.5, 0.6,
+    ]),
+  };
+
+  const result = A.resampleMap(field, 0.25);
+
+  assert.deepEqual({
+    width: result.width,
+    height: result.height,
+    dx: result.dx,
+    resolution: result.resolution,
+  }, {
+    width: 2,
+    height: 2,
+    dx: 0.25,
+    resolution: 0.25,
+  });
+  assert.ok(Math.abs(result.energy[3] - 0.5) < 1e-12);
+  assert.ok(Math.abs(A.sampleListeningPoint(result, { x: 0.25, y: 0.25 }).energy - 0.5) < 1e-12);
+  assert.throws(
+    () => A.sampleListeningPoint(result, { x: 0.3, y: 0.25 }),
+    /inside.*bounds/i,
+  );
+
+  const downstream = A.resampleMap(result, 0.1);
+  assert.deepEqual(
+    { width: downstream.width, height: downstream.height, dx: downstream.dx },
+    { width: 3, height: 3, dx: 0.1 },
+  );
+  assert.ok(Math.abs(A.sampleListeningPoint(downstream, { x: 0.2, y: 0.2 }).energy - 0.4) < 1e-12);
+  assert.throws(
+    () => A.sampleListeningPoint(downstream, { x: 0.25, y: 0.2 }),
+    /inside.*bounds/i,
+  );
 });
 
 test('resampling and sampling reject invalid shapes, values, and bounds before allocation', () => {
