@@ -329,3 +329,26 @@ test('rotating a grid-aligned directional source rotates the wave field', async 
 
   assert.ok(largestShapeChange > 1);
 });
+
+test('finite extreme rotations match normalized fields without mutating snapshots', async () => {
+  for (const rotation of [Number.MAX_VALUE, -Number.MAX_VALUE]) {
+    const normalizedRotation = ((rotation % 360) + 360) % 360;
+    const extreme = fixtureRectangularSolve({ frequency: 80, dx: 0.25 });
+    extreme.sources[0] = { ...extreme.sources[0], type: 'bookshelf', rotation };
+    const normalized = {
+      ...extreme,
+      sources: [{ ...extreme.sources[0], rotation: normalizedRotation }],
+    };
+
+    const [extremeField, normalizedField] = await Promise.all([
+      W.solveCoherent(extreme, noOpHooks()),
+      W.solveCoherent(normalized, noOpHooks()),
+    ]);
+
+    assert.equal(extreme.sources[0].rotation, rotation);
+    assert.deepEqual(extremeField.levelDb, normalizedField.levelDb);
+    assert.ok(extremeField.magnitude.some(value => value > 0));
+    assert.ok(extremeField.magnitude.every(Number.isFinite));
+    assert.ok(extremeField.levelDb.every(Number.isFinite));
+  }
+});

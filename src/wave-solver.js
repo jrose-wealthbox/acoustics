@@ -235,12 +235,15 @@
     return frequency;
   };
 
-  const validateSourceControls = snapshot => {
+  const normalizeRotationDegrees = rotation => ((rotation % 360) + 360) % 360;
+
+  const validateAndNormalizeSourceControls = snapshot => {
     if (!Array.isArray(snapshot.sources)) throw new TypeError('snapshot.sources must be an array.');
     if (snapshot.sources.length > MAX_SOURCES) {
       throw new RangeError(`snapshot.sources cannot contain more than ${MAX_SOURCES} sources.`);
     }
     requireFiniteNumber(snapshot.room.ceilingHeight, 'snapshot.room.ceilingHeight');
+    const normalizedSources = [];
     for (let index = 0; index < snapshot.sources.length; index += 1) {
       const source = snapshot.sources[index];
       requireObject(source, `snapshot.sources[${index}]`);
@@ -270,7 +273,11 @@
       if (!snapshot.room.cells.has(roomCell)) {
         throw new RangeError(`snapshot.sources[${index}] must be inside the room.`);
       }
+      // Reduce finite degrees before converting to radians: multiplying Number.MAX_VALUE by π
+      // overflows even though its equivalent orientation is a small, well-defined angle.
+      normalizedSources.push({ ...source, rotation: normalizeRotationDegrees(source.rotation) });
     }
+    return normalizedSources;
   };
 
   const validateSourceResponses = (snapshot, frequency) => {
@@ -453,17 +460,18 @@
     const hooks = normalizeHooks(rawHooks);
     rejectIfCancelled(hooks);
     const bounds = validateRoomAndBounds(snapshot);
-    validateSourceControls(snapshot);
+    const sources = validateAndNormalizeSourceControls(snapshot);
+    const solverSnapshot = { ...snapshot, sources };
     const policy = resolveGridPolicy(snapshot, bounds);
     const {
       frequency, warmupSteps, lockSteps, totalSteps,
-    } = coherentPreflight(snapshot, policy);
+    } = coherentPreflight(solverSnapshot, policy);
     const grid = buildWaveGrid(snapshot, bounds, policy);
 
     const omega = 2 * Math.PI * frequency;
     const lambda = snapshot.acoustics.speedOfSound * grid.dt / grid.dx;
     const lambdaSquared = lambda * lambda;
-    const sourceDrive = createCoherentDrive(snapshot, grid, frequency);
+    const sourceDrive = createCoherentDrive(solverSnapshot, grid, frequency);
     let previous = new Float64Array(grid.cellCount);
     let current = new Float64Array(grid.cellCount);
     let next = new Float64Array(grid.cellCount);
@@ -540,10 +548,11 @@
     const hooks = normalizeHooks(rawHooks);
     rejectIfCancelled(hooks);
     const bounds = validateRoomAndBounds(snapshot);
-    validateSourceControls(snapshot);
+    const sources = validateAndNormalizeSourceControls(snapshot);
+    const solverSnapshot = { ...snapshot, sources };
     const policy = resolveGridPolicy(snapshot, bounds);
     const centerFrequency = Math.min(80, policy.reliableHz * 0.35);
-    validateSourceResponses(snapshot, centerFrequency);
+    validateSourceResponses(solverSnapshot, centerFrequency);
     const totalSteps = broadbandStepPlan(policy);
     const grid = buildWaveGrid(snapshot, bounds, policy);
     const lambda = snapshot.acoustics.speedOfSound * grid.dt / grid.dx;
@@ -553,7 +562,7 @@
     let next = new Float64Array(grid.cellCount);
     const drive = new Float64Array(grid.cellCount);
     const energy = new Float64Array(grid.cellCount);
-    const sources = snapshot.sources.map(source => {
+    const preparedSources = solverSnapshot.sources.map(source => {
       const responseDb = RoomWave.sourceResponseDb(source.type, centerFrequency);
       const amplitude = responseDb === -Infinity
         ? 0
@@ -571,7 +580,7 @@
     for (let step = 0; step < totalSteps; step += 1) {
       drive.fill(0);
       const time = step * grid.dt;
-      for (const source of sources) {
+      for (const source of preparedSources) {
         const relativeTime = time - source.delaySeconds - pulseCenter;
         const squared = (Math.PI * centerFrequency * relativeTime) ** 2;
         const pulse = source.amplitude * (1 - 2 * squared) * Math.exp(-squared);
@@ -675,11 +684,12 @@
     if (frequencies.length > 512) throw new RangeError('frequencies cannot contain more than 512 values.');
     frequencies.forEach((frequency, index) => requirePositiveNumber(frequency, `frequencies[${index}]`));
     const bounds = validateRoomAndBounds(snapshot);
-    validateSourceControls(snapshot);
+    const sources = validateAndNormalizeSourceControls(snapshot);
+    const solverSnapshot = { ...snapshot, sources };
     const policy = resolveGridPolicy(snapshot, bounds);
     let scanCellUpdates = 0;
     for (const frequency of frequencies) {
-      const { cellUpdates } = coherentPreflight(snapshot, policy, frequency);
+      const { cellUpdates } = coherentPreflight(solverSnapshot, policy, frequency);
       if (scanCellUpdates > MAX_SCAN_CELL_UPDATES - cellUpdates) {
         throw new RangeError(
           `Frequency scan exceeds the ${MAX_SCAN_CELL_UPDATES.toLocaleString('en-US')} cell updates work budget.`,
@@ -693,8 +703,8 @@
       rejectIfCancelled(hooks);
       const frequency = frequencies[index];
       const field = await solveCoherent({
-        ...snapshot,
-        analysis: { ...snapshot.analysis, frequency },
+        ...solverSnapshot,
+        analysis: { ...solverSnapshot.analysis, frequency },
       }, {
         isCancelled: hooks.isCancelled,
         onProgress() {},
