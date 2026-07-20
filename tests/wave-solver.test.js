@@ -108,6 +108,24 @@ test('field sampling is bilinear for scalar and coherent values', () => {
   });
 });
 
+test('field sampling rejects non-finite sampled components', () => {
+  const field = {
+    width: 2,
+    height: 2,
+    dx: 1,
+    originX: 0,
+    originY: 0,
+    levelDb: new Float64Array([0, Number.NaN, 2, 4]),
+  };
+
+  assert.throws(() => W.sampleField(field, 0.5, 0.5), /levelDb.*finite/i);
+
+  delete field.levelDb;
+  field.real = new Float64Array([Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE]);
+  field.imaginary = new Float64Array([Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE]);
+  assert.throws(() => W.sampleField(field, 0.5, 0.5), /magnitude.*finite/i);
+});
+
 test('broadband impulse returns bounded finite energy and yields during work', async () => {
   const progress = [];
   let yields = 0;
@@ -142,6 +160,44 @@ test('opposite coherent sources cancel before normalization', async () => {
   assert.ok(solved.levelDb.every(value => value === -60));
 });
 
+test('the lowest approved source gain remains visible', async () => {
+  const snapshot = fixtureRectangularSolve({ frequency: 40, dx: 0.25 });
+  snapshot.sources[0].gainDb = -12;
+
+  const solved = await W.solveCoherent(snapshot, noOpHooks());
+
+  assert.ok(solved.magnitude.some(value => value > 0));
+  assert.ok(solved.magnitude.every(Number.isFinite));
+});
+
+test('solvers reject source controls outside approved domains before work begins', async () => {
+  const cases = [
+    ['gainDb', 3140, /gainDb.*-12.*6/i],
+    ['gainDb', -300, /gainDb.*-12.*6/i],
+    ['delayMs', -1, /delayMs.*0.*20/i],
+    ['delayMs', 21, /delayMs.*0.*20/i],
+    ['polarity', 'sideways', /polarity.*normal.*inverted/i],
+    ['x', Infinity, /\.x.*finite/i],
+    ['y', Number.NaN, /\.y.*finite/i],
+    ['z', Infinity, /\.z.*finite/i],
+    ['rotation', Infinity, /rotation.*finite/i],
+    ['type', 'future-speaker', /type.*catalog/i],
+    ['type', { toString: () => 'subwoofer' }, /type.*catalog/i],
+  ];
+
+  for (const [key, value, message] of cases) {
+    const snapshot = fixtureRectangularSolve();
+    snapshot.sources[0][key] = value;
+    let workStarted = false;
+    await assert.rejects(() => W.solveCoherent(snapshot, {
+      isCancelled: () => false,
+      onProgress() { workStarted = true; },
+      async yieldControl() { workStarted = true; },
+    }), message);
+    assert.equal(workStarted, false, `${key} started solver work`);
+  }
+});
+
 test('direct calls reject unsafe grids and malformed numerical inputs before allocation', () => {
   const unsafe = fixtureRectangularSolve();
   unsafe.solver.dx = 0.001;
@@ -173,8 +229,8 @@ test('direct calls reject impractical time-step counts before entering the solve
     const cells = new Set();
     for (let y = 0; y < 4; y += 1) for (let x = 0; x < 5; x += 1) cells.add(\`${'${x}'},${'${y}'}\`);
     const snapshot = {
-      room: { cells, absorption: 0.15 },
-      sources: [{ type: 'subwoofer', x: 1.25, y: 2, gainDb: 0, delayMs: 0, polarity: 'normal', rotation: 0 }],
+      room: { cells, ceilingHeight: 2.5, absorption: 0.15 },
+      sources: [{ type: 'subwoofer', x: 1.25, y: 2, z: 0.3, gainDb: 0, delayMs: 0, polarity: 'normal', rotation: 0 }],
       acoustics: { speedOfSound: 1e10 },
       analysis: { frequency: 40, quality: 'fast' },
       solver: { dx: 0.15 }
@@ -190,6 +246,53 @@ test('direct calls reject impractical time-step counts before entering the solve
   });
 
   assert.equal(result.status, 0, result.error?.message || result.stderr);
+});
+
+test('coherent work budgets admit the default solve and reject multi-billion updates before work', async () => {
+  const admitted = fixtureRectangularSolve({ frequency: 20, dx: 0.075 });
+  admitted.room.cells = rectangleCells(10, 7);
+  admitted.analysis.quality = 'standard';
+  delete admitted.solver;
+  let cancelAtFirstYield = false;
+  await assert.rejects(() => W.solveCoherent(admitted, {
+    isCancelled: () => cancelAtFirstYield,
+    onProgress() {},
+    async yieldControl() { cancelAtFirstYield = true; },
+  }), /cancelled/i);
+
+  const rejected = fixtureRectangularSolve({ frequency: 20, dx: 0.05 });
+  rejected.room.cells = rectangleCells(20, 20);
+  let workStarted = false;
+  await assert.rejects(() => W.solveCoherent(rejected, {
+    isCancelled: () => false,
+    onProgress() {
+      workStarted = true;
+      throw new Error('work started');
+    },
+    async yieldControl() {
+      workStarted = true;
+      throw new Error('work started');
+    },
+  }), /cell updates|work budget/i);
+  assert.equal(workStarted, false);
+});
+
+test('scan work budget rejects aggregate multi-billion updates before the first solve', async () => {
+  let workStarted = false;
+
+  await assert.rejects(() => W.scanResponse(
+    fixtureRectangularSolve({ dx: 0.15 }),
+    Array(512).fill(31),
+    {
+      isCancelled: () => false,
+      onProgress() { workStarted = true; },
+      async yieldControl() {
+        workStarted = true;
+        throw new Error('work started');
+      },
+    },
+  ), /scan.*cell updates|scan.*work budget/i);
+  assert.equal(workStarted, false);
 });
 
 test('in-flight cancellation is observed before the first 64-step progress interval', async () => {

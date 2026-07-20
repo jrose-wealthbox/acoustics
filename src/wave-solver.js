@@ -8,6 +8,12 @@
   const MAX_ROOM_SPAN = 30;
   const MAX_SOURCES = 14;
   const MAX_TIME_STEPS = 200000;
+  // The default 10 × 7 m Standard/20 Hz solve is about 136 million cell updates.
+  // This leaves a small policy margin while rejecting configurations measured in billions.
+  const MAX_SOLVE_CELL_UPDATES = 150000000;
+  // The 31–35 Hz validation scan is about 15 million updates; scans get headroom for
+  // useful sweeps without multiplying the per-solve allowance by the frequency count.
+  const MAX_SCAN_CELL_UPDATES = 100000000;
   const PROGRESS_STEPS = 64;
   const YIELD_STEPS = 32;
   const AIR_DAMPING = 0.0001;
@@ -35,9 +41,20 @@
     }
   };
   const checkedProduct = (left, right, name) => {
-    const product = left * right;
-    requireSafeCount(product, name);
-    return product;
+    requireSafeCount(left, `${name} left factor`);
+    requireSafeCount(right, `${name} right factor`);
+    if (left > Math.floor(Number.MAX_SAFE_INTEGER / right)) {
+      throw new RangeError(`${name} must be a positive safe integer.`);
+    }
+    return left * right;
+  };
+  const requireCellUpdateBudget = (cellCount, totalSteps, maximum, name) => {
+    if (cellCount > Math.floor(maximum / totalSteps)) {
+      throw new RangeError(
+        `${name} exceeds the ${maximum.toLocaleString('en-US')} cell updates work budget.`,
+      );
+    }
+    return cellCount * totalSteps;
   };
   const snappedFloor = value => {
     const nearest = Math.round(value);
@@ -133,9 +150,7 @@
     return { dx, dt, width, height, cellCount, reliableHz };
   };
 
-  const createWaveGrid = snapshot => {
-    const bounds = validateRoomAndBounds(snapshot);
-    const policy = resolveGridPolicy(snapshot, bounds);
+  const buildWaveGrid = (snapshot, bounds, policy) => {
     const { width, height, cellCount, dx } = policy;
     const inside = new Uint8Array(cellCount);
     const boundary = new Uint8Array(cellCount);
@@ -187,6 +202,12 @@
     };
   };
 
+  const createWaveGrid = snapshot => {
+    const bounds = validateRoomAndBounds(snapshot);
+    const policy = resolveGridPolicy(snapshot, bounds);
+    return buildWaveGrid(snapshot, bounds, policy);
+  };
+
   const normalizeHooks = hooks => {
     if (hooks === undefined) {
       return { isCancelled: () => false, onProgress() {}, async yieldControl() {} };
@@ -214,27 +235,47 @@
     return frequency;
   };
 
-  const validateSources = (snapshot, grid, frequency) => {
+  const validateSourceControls = snapshot => {
     if (!Array.isArray(snapshot.sources)) throw new TypeError('snapshot.sources must be an array.');
     if (snapshot.sources.length > MAX_SOURCES) {
       throw new RangeError(`snapshot.sources cannot contain more than ${MAX_SOURCES} sources.`);
     }
+    requireFiniteNumber(snapshot.room.ceilingHeight, 'snapshot.room.ceilingHeight');
     for (let index = 0; index < snapshot.sources.length; index += 1) {
       const source = snapshot.sources[index];
       requireObject(source, `snapshot.sources[${index}]`);
-      if (!RoomWave.SOURCE_TYPES || !Object.hasOwn(RoomWave.SOURCE_TYPES, source.type)) {
-        throw new RangeError(`snapshot.sources[${index}].type is unknown.`);
+      if (
+        typeof source.type !== 'string'
+        || !RoomWave.SOURCE_TYPES
+        || !Object.hasOwn(RoomWave.SOURCE_TYPES, source.type)
+      ) {
+        throw new RangeError(`snapshot.sources[${index}].type must match the source catalog.`);
       }
-      for (const key of ['x', 'y', 'gainDb', 'delayMs', 'rotation']) {
+      for (const key of ['x', 'y', 'z', 'gainDb', 'delayMs', 'rotation']) {
         requireFiniteNumber(source[key], `snapshot.sources[${index}].${key}`);
+      }
+      if (source.gainDb < -12 || source.gainDb > 6) {
+        throw new RangeError(`snapshot.sources[${index}].gainDb must be between -12 and 6 dB.`);
+      }
+      if (source.delayMs < 0 || source.delayMs > 20) {
+        throw new RangeError(`snapshot.sources[${index}].delayMs must be between 0 and 20 ms.`);
       }
       if (source.polarity !== 'normal' && source.polarity !== 'inverted') {
         throw new RangeError(`snapshot.sources[${index}].polarity must be normal or inverted.`);
+      }
+      if (source.z < 0.1 || source.z > snapshot.room.ceilingHeight - 0.1) {
+        throw new RangeError(`snapshot.sources[${index}].z must fit within the room height.`);
       }
       const roomCell = `${snappedFloor(source.x)},${snappedFloor(source.y)}`;
       if (!snapshot.room.cells.has(roomCell)) {
         throw new RangeError(`snapshot.sources[${index}] must be inside the room.`);
       }
+    }
+  };
+
+  const validateSourceResponses = (snapshot, frequency) => {
+    for (let index = 0; index < snapshot.sources.length; index += 1) {
+      const source = snapshot.sources[index];
       const gain = RoomWave.sourceComplexGain(source, frequency);
       if (!Number.isFinite(gain.real) || !Number.isFinite(gain.imaginary)) {
         throw new RangeError(`snapshot.sources[${index}] produces a non-finite complex gain.`);
@@ -301,18 +342,22 @@
   const createCoherentDrive = (snapshot, grid, frequency) => {
     const real = new Float64Array(grid.cellCount);
     const imaginary = new Float64Array(grid.cellCount);
+    const accumulatedMagnitude = new Float64Array(grid.cellCount);
     for (const source of snapshot.sources) {
       const gain = RoomWave.sourceComplexGain(source, frequency);
+      const gainMagnitude = Math.hypot(gain.real, gain.imaginary);
       for (const contribution of sourceDistribution(grid, source)) {
         real[contribution.index] += gain.real * contribution.weight;
         imaginary[contribution.index] += gain.imaginary * contribution.weight;
+        accumulatedMagnitude[contribution.index] += gainMagnitude * Math.abs(contribution.weight);
       }
     }
-    // Exact 180-degree cancellation leaves sin(π)-scale residue in IEEE-754. Removing only
-    // machine-noise-scale drive avoids turning a physically silent result into a normalized 0 dB map.
+    // Exact 180-degree cancellation leaves sin(π)-scale residue in IEEE-754. Scale the cleanup
+    // to the drive accumulated at each cell so valid low-gain sources are never erased.
     for (let index = 0; index < real.length; index += 1) {
-      if (Math.abs(real[index]) < 1e-14) real[index] = 0;
-      if (Math.abs(imaginary[index]) < 1e-14) imaginary[index] = 0;
+      const tolerance = Number.EPSILON * accumulatedMagnitude[index] * 16;
+      if (Math.abs(real[index]) <= tolerance) real[index] = 0;
+      if (Math.abs(imaginary[index]) <= tolerance) imaginary[index] = 0;
     }
     return { real, imaginary };
   };
@@ -363,23 +408,59 @@
     reliableHz: grid.reliableHz,
   });
 
-  const solveCoherent = async (snapshot, rawHooks) => {
-    const hooks = normalizeHooks(rawHooks);
-    rejectIfCancelled(hooks);
-    const grid = createWaveGrid(snapshot);
-    const frequency = validateFrequency(snapshot, grid);
-    validateSources(snapshot, grid, frequency);
-
-    const omega = 2 * Math.PI * frequency;
+  const coherentStepPlan = (frequency, policy) => {
     const warmupSeconds = Math.max(20 / frequency, 0.35);
-    const warmupSteps = Math.ceil(warmupSeconds / grid.dt);
-    const lockSteps = Math.ceil((10 / frequency) / grid.dt);
+    const warmupSteps = Math.ceil(warmupSeconds / policy.dt);
+    const lockSteps = Math.ceil((10 / frequency) / policy.dt);
     const totalSteps = warmupSteps + lockSteps;
     if (!Number.isSafeInteger(totalSteps) || totalSteps <= 0 || totalSteps > MAX_TIME_STEPS) {
       throw new RangeError(
         `Coherent solver step count must be a positive safe integer no greater than ${MAX_TIME_STEPS}.`,
       );
     }
+    const cellUpdates = requireCellUpdateBudget(
+      policy.cellCount,
+      totalSteps,
+      MAX_SOLVE_CELL_UPDATES,
+      'Coherent solve',
+    );
+    return { warmupSteps, lockSteps, totalSteps, cellUpdates };
+  };
+
+  const broadbandStepPlan = policy => {
+    const totalSteps = Math.ceil(0.6 / policy.dt);
+    if (!Number.isSafeInteger(totalSteps) || totalSteps <= 0 || totalSteps > MAX_TIME_STEPS) {
+      throw new RangeError(
+        `Broadband solver step count must be a positive safe integer no greater than ${MAX_TIME_STEPS}.`,
+      );
+    }
+    requireCellUpdateBudget(
+      policy.cellCount,
+      totalSteps,
+      MAX_SOLVE_CELL_UPDATES,
+      'Broadband solve',
+    );
+    return totalSteps;
+  };
+
+  const coherentPreflight = (snapshot, policy, frequencyOverride) => {
+    const frequency = validateFrequency(snapshot, policy, frequencyOverride);
+    validateSourceResponses(snapshot, frequency);
+    return { frequency, ...coherentStepPlan(frequency, policy) };
+  };
+
+  const solveCoherent = async (snapshot, rawHooks) => {
+    const hooks = normalizeHooks(rawHooks);
+    rejectIfCancelled(hooks);
+    const bounds = validateRoomAndBounds(snapshot);
+    validateSourceControls(snapshot);
+    const policy = resolveGridPolicy(snapshot, bounds);
+    const {
+      frequency, warmupSteps, lockSteps, totalSteps,
+    } = coherentPreflight(snapshot, policy);
+    const grid = buildWaveGrid(snapshot, bounds, policy);
+
+    const omega = 2 * Math.PI * frequency;
     const lambda = snapshot.acoustics.speedOfSound * grid.dt / grid.dx;
     const lambdaSquared = lambda * lambda;
     const sourceDrive = createCoherentDrive(snapshot, grid, frequency);
@@ -458,15 +539,13 @@
   const solveBroadbandImpulse = async (snapshot, rawHooks) => {
     const hooks = normalizeHooks(rawHooks);
     rejectIfCancelled(hooks);
-    const grid = createWaveGrid(snapshot);
-    const centerFrequency = Math.min(80, grid.reliableHz * 0.35);
-    validateSources(snapshot, grid, centerFrequency);
-    const totalSteps = Math.ceil(0.6 / grid.dt);
-    if (!Number.isSafeInteger(totalSteps) || totalSteps <= 0 || totalSteps > MAX_TIME_STEPS) {
-      throw new RangeError(
-        `Broadband solver step count must be a positive safe integer no greater than ${MAX_TIME_STEPS}.`,
-      );
-    }
+    const bounds = validateRoomAndBounds(snapshot);
+    validateSourceControls(snapshot);
+    const policy = resolveGridPolicy(snapshot, bounds);
+    const centerFrequency = Math.min(80, policy.reliableHz * 0.35);
+    validateSourceResponses(snapshot, centerFrequency);
+    const totalSteps = broadbandStepPlan(policy);
+    const grid = buildWaveGrid(snapshot, bounds, policy);
     const lambda = snapshot.acoustics.speedOfSound * grid.dt / grid.dx;
     const lambdaSquared = lambda * lambda;
     let previous = new Float64Array(grid.cellCount);
@@ -562,7 +641,11 @@
     requireFiniteNumber(y, 'y');
     const sampled = {};
     for (const key of ['levelDb', 'energy']) {
-      if (field[key] !== undefined) sampled[key] = bilinear(field[key], field, x, y, `field.${key}`);
+      if (field[key] === undefined) continue;
+      sampled[key] = bilinear(field[key], field, x, y, `field.${key}`);
+      if (!Number.isFinite(sampled[key])) {
+        throw new RangeError(`Sampled field.${key} must be finite.`);
+      }
     }
     if (field.real !== undefined || field.imaginary !== undefined) {
       if (field.real === undefined || field.imaginary === undefined) {
@@ -570,7 +653,14 @@
       }
       sampled.real = bilinear(field.real, field, x, y, 'field.real');
       sampled.imaginary = bilinear(field.imaginary, field, x, y, 'field.imaginary');
+      if (!Number.isFinite(sampled.real)) throw new RangeError('Sampled field.real must be finite.');
+      if (!Number.isFinite(sampled.imaginary)) {
+        throw new RangeError('Sampled field.imaginary must be finite.');
+      }
       sampled.magnitude = Math.hypot(sampled.real, sampled.imaginary);
+      if (!Number.isFinite(sampled.magnitude)) {
+        throw new RangeError('Sampled field magnitude must be finite.');
+      }
       sampled.phase = sampled.magnitude === 0 ? 0 : Math.atan2(sampled.imaginary, sampled.real);
     }
     return sampled;
@@ -584,6 +674,19 @@
     }
     if (frequencies.length > 512) throw new RangeError('frequencies cannot contain more than 512 values.');
     frequencies.forEach((frequency, index) => requirePositiveNumber(frequency, `frequencies[${index}]`));
+    const bounds = validateRoomAndBounds(snapshot);
+    validateSourceControls(snapshot);
+    const policy = resolveGridPolicy(snapshot, bounds);
+    let scanCellUpdates = 0;
+    for (const frequency of frequencies) {
+      const { cellUpdates } = coherentPreflight(snapshot, policy, frequency);
+      if (scanCellUpdates > MAX_SCAN_CELL_UPDATES - cellUpdates) {
+        throw new RangeError(
+          `Frequency scan exceeds the ${MAX_SCAN_CELL_UPDATES.toLocaleString('en-US')} cell updates work budget.`,
+        );
+      }
+      scanCellUpdates += cellUpdates;
+    }
     const results = [];
     hooks.onProgress({ phase: 'frequency scan', completed: 0, total: frequencies.length });
     for (let index = 0; index < frequencies.length; index += 1) {
@@ -601,10 +704,21 @@
       let count = 0;
       for (let cell = 0; cell < field.magnitude.length; cell += 1) {
         if (!field.inside[cell]) continue;
-        energy += field.magnitude[cell] * field.magnitude[cell];
+        const magnitudeSquared = field.magnitude[cell] * field.magnitude[cell];
+        if (!Number.isFinite(magnitudeSquared)) {
+          throw new Error('Frequency scan produced non-finite cell energy.');
+        }
+        energy += magnitudeSquared;
+        if (!Number.isFinite(energy)) {
+          throw new Error('Frequency scan produced non-finite accumulated energy.');
+        }
         count += 1;
       }
-      results.push({ frequency, energy: count === 0 ? 0 : energy / count });
+      const meanEnergy = count === 0 ? 0 : energy / count;
+      if (!Number.isFinite(meanEnergy)) {
+        throw new Error('Frequency scan produced non-finite mean energy.');
+      }
+      results.push({ frequency, energy: meanEnergy });
       hooks.onProgress({
         phase: 'frequency scan',
         completed: index + 1,
