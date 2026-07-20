@@ -8,10 +8,10 @@ const rectangleRayFixture = () => ({
   room: {
     absorption: 0.15,
     walls: [
-      { ax: 0, ay: 0, bx: 5, by: 0, nx: 0, ny: 1 },
-      { ax: 5, ay: 0, bx: 5, by: 4, nx: -1, ny: 0 },
-      { ax: 5, ay: 4, bx: 0, by: 4, nx: 0, ny: -1 },
-      { ax: 0, ay: 4, bx: 0, by: 0, nx: 1, ny: 0 },
+      { ax: 0, ay: 0, bx: 5, by: 0, nx: 0, ny: -1 },
+      { ax: 5, ay: 0, bx: 5, by: 4, nx: 1, ny: 0 },
+      { ax: 5, ay: 4, bx: 0, by: 4, nx: 0, ny: 1 },
+      { ax: 0, ay: 4, bx: 0, by: 0, nx: -1, ny: 0 },
     ],
   },
   acoustics: { speedOfSound: 343 },
@@ -114,6 +114,23 @@ test('wall validation rejects noncanonical and disconnected boundaries before tr
     { ax: 3, ay: 3, bx: 0, by: 3, nx: 0, ny: 1 },
     { ax: 0, ay: 3, bx: 0, by: 0, nx: -1, ny: 0 },
   ], /perpendicular.*intersect/i);
+});
+
+test('wall validation rejects a split rectangle with one inward top normal', () => {
+  const snapshot = rectangleRayFixture();
+  const [bottom, right, top, left] = snapshot.room.walls;
+  snapshot.room.walls = [
+    bottom,
+    right,
+    { ...top, bx: 2.5 },
+    { ...top, ax: 2.5, ny: -1 },
+    left,
+  ];
+
+  assert.throws(
+    () => R.traceSourcePaths(snapshot, snapshot.sources[0]),
+    /normal.*point outward.*inward offset.*inside/i,
+  );
 });
 
 test('a ray that lands exactly on a rectangular corner continues without self-hitting', () => {
@@ -246,8 +263,8 @@ test('coverage rejects excessive ray deposits before the hot loop', () => {
       gainDb: 0, delayMs: 0, polarity: 'normal', rotation: 0 });
     const snapshot = {
       room: { absorption: 0.15, walls: [
-        wall(0, 0, 30, 0, 0, 1), wall(30, 0, 30, 30, -1, 0),
-        wall(30, 30, 0, 30, 0, -1), wall(0, 30, 0, 0, 1, 0)
+        wall(0, 0, 30, 0, 0, -1), wall(30, 0, 30, 30, 1, 0),
+        wall(30, 30, 0, 30, 0, 1), wall(0, 30, 0, 0, -1, 0)
       ] },
       acoustics: { speedOfSound: 343 },
       analysis: { mapResolution: 0.1 },

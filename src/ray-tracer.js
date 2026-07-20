@@ -9,6 +9,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis, function (RoomWave) {
   const RAY_EPSILON = 1e-6;
+  const NORMAL_PROBE_EPSILON = 1e-6;
   const INTERSECTION_EPSILON = 1e-9;
   const PARALLEL_EPSILON = 1e-12;
   const MAX_RAYS = 1440;
@@ -187,6 +188,11 @@
       maxX = Math.max(maxX, wall.ax, wall.bx);
       maxY = Math.max(maxY, wall.ay, wall.by);
     });
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (!(width > 0 && height > 0 && width <= MAX_ROOM_SPAN && height <= MAX_ROOM_SPAN)) {
+      throw new RangeError(`snapshot.room.walls must bound a room no larger than ${MAX_ROOM_SPAN} × ${MAX_ROOM_SPAN} m.`);
+    }
 
     const canonicalSegments = new Set();
     const collinearGroups = new Map();
@@ -286,11 +292,25 @@
       );
     }
 
-    const width = maxX - minX;
-    const height = maxY - minY;
-    if (!(width > 0 && height > 0 && width <= MAX_ROOM_SPAN && height <= MAX_ROOM_SPAN)) {
-      throw new RangeError(`snapshot.room.walls must bound a room no larger than ${MAX_ROOM_SPAN} × ${MAX_ROOM_SPAN} m.`);
-    }
+    walls.forEach((wall, index) => {
+      const midpoint = {
+        x: wall.ax + (wall.bx - wall.ax) / 2,
+        y: wall.ay + (wall.by - wall.ay) / 2,
+      };
+      const inwardProbe = {
+        x: midpoint.x - wall.nx * NORMAL_PROBE_EPSILON,
+        y: midpoint.y - wall.ny * NORMAL_PROBE_EPSILON,
+      };
+      const outwardProbe = {
+        x: midpoint.x + wall.nx * NORMAL_PROBE_EPSILON,
+        y: midpoint.y + wall.ny * NORMAL_PROBE_EPSILON,
+      };
+      if (!pointInsideWalls(inwardProbe, walls) || pointInsideWalls(outwardProbe, walls)) {
+        throw new RangeError(
+          `snapshot.room.walls[${index}].normal must point outward; its inward offset must be inside and outward offset outside.`,
+        );
+      }
+    });
     return { walls, minX, minY, maxX, maxY, width, height };
   };
 
