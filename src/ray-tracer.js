@@ -17,6 +17,7 @@
   const MAX_SOURCES = 14;
   const MAX_FREQUENCIES = 128;
   const MAX_COVERAGE_DEPOSITS = 50000000;
+  const MAX_RAY_INTERSECTIONS = 20000000;
   const MAX_ROOM_SPAN = 30;
   const MAP_RESOLUTIONS = new Set([0.1, 0.25, 0.5, 1]);
 
@@ -186,6 +187,105 @@
       maxX = Math.max(maxX, wall.ax, wall.bx);
       maxY = Math.max(maxY, wall.ay, wall.by);
     });
+
+    const canonicalSegments = new Set();
+    const collinearGroups = new Map();
+    const endpointGraph = new Map();
+    const endpointKey = (x, y) => `${x},${y}`;
+    const addEndpoint = (x, y, otherX, otherY) => {
+      const key = endpointKey(x, y);
+      if (!endpointGraph.has(key)) endpointGraph.set(key, new Set());
+      endpointGraph.get(key).add(endpointKey(otherX, otherY));
+    };
+    walls.forEach((wall, index) => {
+      const forward = wall.ax < wall.bx || (wall.ax === wall.bx && wall.ay < wall.by);
+      const startKey = endpointKey(forward ? wall.ax : wall.bx, forward ? wall.ay : wall.by);
+      const endKey = endpointKey(forward ? wall.bx : wall.ax, forward ? wall.by : wall.ay);
+      const canonicalKey = `${startKey}|${endKey}`;
+      if (canonicalSegments.has(canonicalKey)) {
+        throw new RangeError(`snapshot.room.walls[${index}] duplicates an existing wall, including reversed duplicates.`);
+      }
+      canonicalSegments.add(canonicalKey);
+
+      const horizontal = wall.ay === wall.by;
+      const groupKey = horizontal ? `h:${wall.ay}` : `v:${wall.ax}`;
+      if (!collinearGroups.has(groupKey)) collinearGroups.set(groupKey, []);
+      collinearGroups.get(groupKey).push({
+        start: horizontal ? Math.min(wall.ax, wall.bx) : Math.min(wall.ay, wall.by),
+        end: horizontal ? Math.max(wall.ax, wall.bx) : Math.max(wall.ay, wall.by),
+        normal: `${wall.nx},${wall.ny}`,
+        index,
+      });
+      addEndpoint(wall.ax, wall.ay, wall.bx, wall.by);
+      addEndpoint(wall.bx, wall.by, wall.ax, wall.ay);
+    });
+
+    for (const group of collinearGroups.values()) {
+      group.sort((left, right) => left.start - right.start || left.end - right.end);
+      let previous = group[0];
+      for (const current of group.slice(1)) {
+        if (current.start < previous.end) {
+          throw new RangeError(
+            `snapshot.room.walls[${current.index}] overlaps another collinear wall.`,
+          );
+        }
+        if (current.start === previous.end && current.normal === previous.normal) {
+          throw new RangeError(
+            `snapshot.room.walls contains adjacent same-normal segments that must be merged.`,
+          );
+        }
+        previous = current;
+      }
+    }
+
+    const horizontalWalls = walls.filter(wall => wall.ay === wall.by);
+    const verticalWalls = walls.filter(wall => wall.ax === wall.bx);
+    for (const horizontal of horizontalWalls) {
+      const minX = Math.min(horizontal.ax, horizontal.bx);
+      const maxX = Math.max(horizontal.ax, horizontal.bx);
+      for (const vertical of verticalWalls) {
+        const minY = Math.min(vertical.ay, vertical.by);
+        const maxY = Math.max(vertical.ay, vertical.by);
+        if (
+          vertical.ax < minX || vertical.ax > maxX
+          || horizontal.ay < minY || horizontal.ay > maxY
+        ) continue;
+        const horizontalEndpoint = vertical.ax === horizontal.ax || vertical.ax === horizontal.bx;
+        const verticalEndpoint = horizontal.ay === vertical.ay || horizontal.ay === vertical.by;
+        if (!horizontalEndpoint || !verticalEndpoint) {
+          throw new RangeError(
+            'snapshot.room.walls contains perpendicular segments that intersect away from shared endpoints.',
+          );
+        }
+      }
+    }
+
+    for (const [key, neighbors] of endpointGraph) {
+      // Connected, hole-free polyominoes extracted by geometry have one simple boundary and
+      // degree-two corners. A degree-four touch requires diagonal-only contact or a pinched hole,
+      // both rejected by the room topology contract before wall extraction.
+      if (neighbors.size !== 2) {
+        throw new RangeError(
+          `snapshot.room.walls must form a closed boundary; endpoint ${key} has degree ${neighbors.size}, not 2.`,
+        );
+      }
+    }
+    const firstEndpoint = endpointGraph.keys().next().value;
+    const visited = new Set(firstEndpoint === undefined ? [] : [firstEndpoint]);
+    const queue = firstEndpoint === undefined ? [] : [firstEndpoint];
+    for (let index = 0; index < queue.length; index += 1) {
+      for (const neighbor of endpointGraph.get(queue[index])) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+    if (visited.size !== endpointGraph.size) {
+      throw new RangeError(
+        'snapshot.room.walls must form one connected boundary; disconnected loops and hole boundaries are not supported.',
+      );
+    }
+
     const width = maxX - minX;
     const height = maxY - minY;
     if (!(width > 0 && height > 0 && width <= MAX_ROOM_SPAN && height <= MAX_ROOM_SPAN)) {
@@ -293,10 +393,27 @@
     return paths;
   };
 
+  const requireIntersectionBudget = (sourceCount, wallCount, traceOptions) => {
+    const intersections = sourceCount
+      * wallCount
+      * traceOptions.rayCount
+      * (traceOptions.maxBounces + 1);
+    // Every ray/bounce scans every wall for its nearest hit, so bound that product separately
+    // from heatmap deposits before entering the performance-critical intersection loop.
+    if (!Number.isSafeInteger(intersections) || intersections > MAX_RAY_INTERSECTIONS) {
+      throw new RangeError(
+        `Ray tracing exceeds the ${MAX_RAY_INTERSECTIONS.toLocaleString('en-US')} intersection work budget.`,
+      );
+    }
+    return intersections;
+  };
+
   const traceSourcePaths = (snapshot, source, options = {}) => {
     const bounds = validateWalls(snapshot);
     const validatedSource = validateSource(source, bounds);
-    return tracePrepared(bounds, validatedSource, validateTraceOptions(options));
+    const traceOptions = validateTraceOptions(options);
+    requireIntersectionBudget(1, bounds.walls.length, traceOptions);
+    return tracePrepared(bounds, validatedSource, traceOptions);
   };
 
   const mapDimension = (span, resolution, name) => {
@@ -329,13 +446,17 @@
     }
 
     const reflectedAmplitude = reflection ** path.bounces;
-    if (reflectedAmplitude === 0) return;
+    if (reflectedAmplitude === 0) return 0;
+    let depositedEnergy = 0;
     for (const [index, distance] of cells) {
       const spreadingDistance = Math.max(distance, map.resolution / 2);
       const airAmplitude = 10 ** (-(airLossDbPerMeter(frequency) * distance) / 20);
       const amplitude = baseAmplitude * reflectedAmplitude * airAmplitude / spreadingDistance;
-      target[index] += amplitude * amplitude;
+      const energy = amplitude * amplitude;
+      target[index] += energy;
+      depositedEnergy += energy;
     }
+    return depositedEnergy;
   };
 
   const representativePaths = (paths, rayCount) => {
@@ -382,6 +503,7 @@
     });
 
     const traceOptions = validateTraceOptions({});
+    requireIntersectionBudget(sources.length, bounds.walls.length, traceOptions);
     const longestSegmentSamples = Math.ceil(
       Math.hypot(bounds.width, bounds.height) / (resolution / 2),
     );
@@ -420,6 +542,7 @@
     const rayWeight = 1 / traceOptions.rayCount;
     const bands = frequencies.map(frequency => {
       const energy = new Float64Array(width * height);
+      const bounceEnergy = new Float64Array(MAX_BOUNCES + 1);
       for (const traced of tracedSources) {
         const responseDb = RoomWave.sourceResponseDb(traced.source.type, frequency);
         if (responseDb === -Infinity) continue;
@@ -429,7 +552,7 @@
         const rotation = traced.source.rotation * Math.PI / 180;
         for (const path of traced.paths) {
           const directivity = RoomWave.directionalGain(traced.source.type, path.angle - rotation);
-          depositPathEnergy(
+          bounceEnergy[path.bounces] += depositPathEnergy(
             energy,
             inside,
             map,
@@ -440,7 +563,7 @@
           );
         }
       }
-      return { frequency, energy };
+      return { frequency, energy, bounceEnergy };
     });
 
     const energy = new Float64Array(width * height);
