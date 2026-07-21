@@ -5,13 +5,13 @@ Updated: 2026-07-20
 ## Checkout
 
 - Repository: `jrose-wealthbox/acoustics`
-- Branch: `feature/acoustic-room-simulator`
-- Verified handoff commit: `cd60c0602c7f9031d468aec7afb994d898527ae7`
-- Branch base on `main`: `d0d7f1c83ab848728cf6b9b0f0370c1027732a86`
+- Branch: `main`
+- Verified Task 9 code checkpoint: `cd60c0602c7f9031d468aec7afb994d898527ae7`
 - Runtime: Node.js 20 or newer
 
-The feature branch contains the implementation. `main` contains the approved
-design and implementation plan but not the simulator modules.
+`main` is the canonical development branch and contains the approved design,
+implementation plan, tests, and simulator modules. No auxiliary worktree is
+required; continue directly in the repository root.
 
 ## Authoritative Documents
 
@@ -105,8 +105,8 @@ review before advancing. Preserve these project-level constraints:
 ## Suggested Codex Continuation Prompt
 
 ```text
-Continue the standalone acoustic-room simulator on
-feature/acoustic-room-simulator.
+Continue the standalone acoustic-room simulator directly on main. Do not create
+an auxiliary worktree unless explicitly requested.
 
 Read docs/HANDOFF.md, the approved design spec, and the implementation plan in
 full. Tasks 1-9 are complete and independently reviewed at cd60c06. Begin with
