@@ -17,9 +17,12 @@ required; continue directly in the repository root.
 
 Read these before changing code:
 
-1. `docs/superpowers/specs/2026-07-15-acoustic-room-simulator-design.md`
-2. `docs/superpowers/plans/2026-07-15-acoustic-room-simulator.md`
+1. `AGENTS.md`
+2. `README.md`
 3. This handoff
+4. `docs/superpowers/specs/2026-07-15-acoustic-room-simulator-design.md`
+5. The next unfinished task in
+   `docs/superpowers/plans/2026-07-15-acoustic-room-simulator.md`
 
 The `.superpowers/sdd/` directory is intentionally ignored. It contains local
 task briefs, review packages, reports, and the working progress ledger, so a
@@ -108,9 +111,10 @@ review before advancing. Preserve these project-level constraints:
 Continue the standalone acoustic-room simulator directly on main. Do not create
 an auxiliary worktree unless explicitly requested.
 
-Read docs/HANDOFF.md, the approved design spec, and the implementation plan in
-full. Tasks 1-9 are complete and independently reviewed at cd60c06. Begin with
-Task 10 only. Use TDD, preserve the file:// single-file constraint, validate
-before allocation or hot work, run focused and full verification, and obtain an
-independent review before updating this handoff and moving to another task.
+Read AGENTS.md, README.md, docs/HANDOFF.md, the approved design spec, and the
+Task 10 section of the implementation plan in full. Tasks 1-9 are complete and
+independently reviewed at cd60c06. Begin with Task 10 only. Use TDD, preserve
+the file:// single-file constraint, validate before allocation or hot work, run
+focused and full verification, and obtain an independent review before updating
+this handoff and moving to another task.
 ```
