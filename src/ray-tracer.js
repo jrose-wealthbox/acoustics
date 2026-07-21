@@ -359,56 +359,63 @@
     return { angularStepDegrees, maxBounces, rayCount };
   };
 
-  const tracePrepared = (bounds, source, traceOptions) => {
-    const { angularStepDegrees, maxBounces, rayCount } = traceOptions;
+  const tracePreparedRay = (bounds, source, traceOptions, rayIndex) => {
+    const { angularStepDegrees, maxBounces } = traceOptions;
     const paths = [];
-    for (let rayIndex = 0; rayIndex < rayCount; rayIndex += 1) {
-      const angle = rayIndex * angularStepDegrees * Math.PI / 180;
-      let direction = { x: Math.cos(angle), y: Math.sin(angle) };
-      let queryOrigin = { x: source.x, y: source.y };
-      let visibleStart = queryOrigin;
-      let totalLength = 0;
-      const points = [{ ...queryOrigin }];
+    const angle = rayIndex * angularStepDegrees * Math.PI / 180;
+    let direction = { x: Math.cos(angle), y: Math.sin(angle) };
+    let queryOrigin = { x: source.x, y: source.y };
+    let visibleStart = queryOrigin;
+    let totalLength = 0;
+    const points = [{ ...queryOrigin }];
 
-      for (let bounces = 0; bounces <= maxBounces; bounces += 1) {
-        const hit = nearestIntersection(queryOrigin, direction, bounds.walls);
-        if (!hit) break;
-        const segmentLength = Math.hypot(hit.x - visibleStart.x, hit.y - visibleStart.y);
-        if (!(segmentLength > INTERSECTION_EPSILON) || !Number.isFinite(segmentLength)) break;
-        const startLength = totalLength;
-        totalLength += segmentLength;
-        points.push({ x: hit.x, y: hit.y });
-        paths.push({
-          sourceId: source.id,
-          rayIndex,
-          bounces,
-          length: totalLength,
-          startLength,
-          angle,
-          start: { ...visibleStart },
-          end: { x: hit.x, y: hit.y },
-          points: points.map(point => ({ ...point })),
-        });
-        if (bounces === maxBounces) break;
+    for (let bounces = 0; bounces <= maxBounces; bounces += 1) {
+      const hit = nearestIntersection(queryOrigin, direction, bounds.walls);
+      if (!hit) break;
+      const segmentLength = Math.hypot(hit.x - visibleStart.x, hit.y - visibleStart.y);
+      if (!(segmentLength > INTERSECTION_EPSILON) || !Number.isFinite(segmentLength)) break;
+      const startLength = totalLength;
+      totalLength += segmentLength;
+      points.push({ x: hit.x, y: hit.y });
+      paths.push({
+        sourceId: source.id,
+        rayIndex,
+        bounces,
+        length: totalLength,
+        startLength,
+        angle,
+        start: { ...visibleStart },
+        end: { x: hit.x, y: hit.y },
+        points: points.map(point => ({ ...point })),
+      });
+      if (bounces === maxBounces) break;
 
-        // A corner is two simultaneous wall hits. Reflecting across each distinct cardinal
-        // normal reverses both components and keeps that measure-zero ray inside the polygon.
-        const reflectedNormals = new Set();
-        for (const wall of hit.segments) {
-          const key = `${wall.nx},${wall.ny}`;
-          if (reflectedNormals.has(key)) continue;
-          reflectedNormals.add(key);
-          direction = reflectUnchecked(direction, { x: wall.nx, y: wall.ny });
-        }
-        if (!Number.isFinite(direction.x) || !Number.isFinite(direction.y)) break;
-        visibleStart = { x: hit.x, y: hit.y };
-        // Starting just inside the reflected direction prevents the wall we just hit from
-        // winning again at floating-point distance zero, which otherwise creates self-hit loops.
-        queryOrigin = {
-          x: hit.x + direction.x * RAY_EPSILON,
-          y: hit.y + direction.y * RAY_EPSILON,
-        };
+      // A corner is two simultaneous wall hits. Reflecting across each distinct cardinal
+      // normal reverses both components and keeps that measure-zero ray inside the polygon.
+      const reflectedNormals = new Set();
+      for (const wall of hit.segments) {
+        const key = `${wall.nx},${wall.ny}`;
+        if (reflectedNormals.has(key)) continue;
+        reflectedNormals.add(key);
+        direction = reflectUnchecked(direction, { x: wall.nx, y: wall.ny });
       }
+      if (!Number.isFinite(direction.x) || !Number.isFinite(direction.y)) break;
+      visibleStart = { x: hit.x, y: hit.y };
+      // Starting just inside the reflected direction prevents the wall we just hit from
+      // winning again at floating-point distance zero, which otherwise creates self-hit loops.
+      queryOrigin = {
+        x: hit.x + direction.x * RAY_EPSILON,
+        y: hit.y + direction.y * RAY_EPSILON,
+      };
+    }
+    return paths;
+  };
+
+  const tracePrepared = (bounds, source, traceOptions) => {
+    const paths = [];
+    const { rayCount } = traceOptions;
+    for (let rayIndex = 0; rayIndex < rayCount; rayIndex += 1) {
+      paths.push(...tracePreparedRay(bounds, source, traceOptions, rayIndex));
     }
     return paths;
   };
@@ -488,8 +495,71 @@
     return [...lastByRay.values()];
   };
 
-  const accumulateRayCoverage = (snapshot, frequencies) => {
-    const bounds = validateWalls(snapshot);
+  const coverageResult = (
+    map,
+    inside,
+    bands,
+    tracedSources,
+    sources,
+    traceOptions,
+    selectedSourceId,
+  ) => {
+    const energy = new Float64Array(map.width * map.height);
+    for (const band of bands) {
+      for (let index = 0; index < energy.length; index += 1) {
+        energy[index] += band.energy[index] / bands.length;
+      }
+    }
+    const selectedId = selectedSourceId || sources[0]?.id || null;
+    const selectedTrace = tracedSources.find(({ source }) => source.id === selectedId);
+    const paths = selectedTrace
+      ? representativePaths(selectedTrace.paths, traceOptions.rayCount)
+      : [];
+    return {
+      ...map,
+      coherent: false,
+      model: 'incoherent-ray-energy',
+      inside,
+      energy,
+      bands,
+      paths,
+      reflectionBounces: MAX_BOUNCES,
+    };
+  };
+
+  const fillInsideRow = (inside, map, bounds, y) => {
+    for (let x = 0; x < map.width; x += 1) {
+      inside[y * map.width + x] = Number(pointInsideWalls({
+        x: bounds.minX + (x + 0.5) * map.resolution,
+        y: bounds.minY + (y + 0.5) * map.resolution,
+      }, bounds.walls));
+    }
+  };
+
+  const normalizeHooks = hooks => {
+    requireObject(hooks, 'hooks');
+    for (const name of ['isCancelled', 'onProgress', 'yieldControl']) {
+      if (typeof hooks[name] !== 'function') throw new TypeError(`hooks.${name} must be a function.`);
+    }
+    return hooks;
+  };
+  const rejectIfCancelled = hooks => {
+    if (hooks.isCancelled()) throw new Error('Calculation cancelled.');
+  };
+  const asyncCheckpoint = async (hooks, progress) => {
+    hooks.onProgress(progress);
+    await hooks.yieldControl();
+    rejectIfCancelled(hooks);
+  };
+
+  const validatedRayPlans = new WeakMap();
+
+  const prepareRayCoverage = (snapshot, frequencies) => {
+    const validatedBounds = validateWalls(snapshot);
+    const bounds = {
+      ...validatedBounds,
+      walls: validatedBounds.walls.map(wall => ({ ...wall })),
+    };
     requireFiniteNumber(snapshot.room.absorption, 'snapshot.room.absorption');
     if (snapshot.room.absorption < 0 || snapshot.room.absorption > 1) {
       throw new RangeError('snapshot.room.absorption must be between 0 and 1.');
@@ -544,23 +614,62 @@
     const width = mapDimension(bounds.width, resolution, 'coverage width');
     const height = mapDimension(bounds.height, resolution, 'coverage height');
     const map = { width, height, resolution, originX: bounds.minX, originY: bounds.minY };
+    return {
+      bounds,
+      sources,
+      traceOptions,
+      map,
+      frequencies: frequencies.slice(),
+      reflection: RoomWave.reflectionAmplitude(snapshot.room.absorption),
+      selectedSourceId: snapshot.ui?.selectedSourceId,
+    };
+  };
+
+  const preflightRayCoverage = (snapshot, frequencies) => {
+    const prepared = prepareRayCoverage(snapshot, frequencies);
+    const token = Object.freeze({});
+    validatedRayPlans.set(token, {
+      snapshot,
+      frequencies: prepared.frequencies,
+      prepared,
+    });
+    return token;
+  };
+
+  const resolveRayCoveragePlan = (snapshot, frequencies, token) => {
+    if (token === undefined) return prepareRayCoverage(snapshot, frequencies);
+    const entry = validatedRayPlans.get(token);
+    const matches = entry
+      && entry.snapshot === snapshot
+      && Array.isArray(frequencies)
+      && frequencies.length === entry.frequencies.length
+      && frequencies.every((frequency, index) => frequency === entry.frequencies[index]);
+    if (!matches) throw new RangeError('Validated preflight plan does not match the execution inputs.');
+    return entry.prepared;
+  };
+
+  const accumulateRayCoverage = (snapshot, frequencies) => {
+    const {
+      bounds,
+      sources,
+      traceOptions,
+      map,
+      frequencies: preparedFrequencies,
+      reflection,
+      selectedSourceId,
+    } = prepareRayCoverage(snapshot, frequencies);
+    const { width, height } = map;
     const inside = new Uint8Array(width * height);
     for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        inside[y * width + x] = Number(pointInsideWalls({
-          x: bounds.minX + (x + 0.5) * resolution,
-          y: bounds.minY + (y + 0.5) * resolution,
-        }, bounds.walls));
-      }
+      fillInsideRow(inside, map, bounds, y);
     }
 
     const tracedSources = sources.map(source => ({
       source,
       paths: tracePrepared(bounds, source, traceOptions),
     }));
-    const reflection = RoomWave.reflectionAmplitude(snapshot.room.absorption);
     const rayWeight = 1 / traceOptions.rayCount;
-    const bands = frequencies.map(frequency => {
+    const bands = preparedFrequencies.map(frequency => {
       const energy = new Float64Array(width * height);
       const bounceEnergy = new Float64Array(MAX_BOUNCES + 1);
       for (const traced of tracedSources) {
@@ -585,35 +694,115 @@
       }
       return { frequency, energy, bounceEnergy };
     });
+    return coverageResult(
+      map,
+      inside,
+      bands,
+      tracedSources,
+      sources,
+      traceOptions,
+      selectedSourceId,
+    );
+  };
 
-    const energy = new Float64Array(width * height);
-    for (const band of bands) {
-      for (let index = 0; index < energy.length; index += 1) {
-        energy[index] += band.energy[index] / bands.length;
+  const accumulateRayCoverageAsync = async (
+    snapshot,
+    frequencies,
+    rawHooks,
+    validatedPlan,
+  ) => {
+    const hooks = normalizeHooks(rawHooks);
+    rejectIfCancelled(hooks);
+    const {
+      bounds,
+      sources,
+      traceOptions,
+      map,
+      frequencies: preparedFrequencies,
+      reflection,
+      selectedSourceId,
+    } = resolveRayCoveragePlan(snapshot, frequencies, validatedPlan);
+    const inside = new Uint8Array(map.width * map.height);
+    for (let y = 0; y < map.height; y += 1) {
+      fillInsideRow(inside, map, bounds, y);
+      if ((y + 1) % 8 === 0 || y + 1 === map.height) {
+        await asyncCheckpoint(hooks, {
+          phase: 'ray map', completed: y + 1, total: map.height,
+        });
       }
     }
-    const selectedSourceId = snapshot.ui?.selectedSourceId || sources[0]?.id || null;
-    const selectedTrace = tracedSources.find(({ source }) => source.id === selectedSourceId);
-    const paths = selectedTrace
-      ? representativePaths(selectedTrace.paths, traceOptions.rayCount)
-      : [];
 
-    return {
-      ...map,
-      coherent: false,
-      model: 'incoherent-ray-energy',
+    const tracedSources = [];
+    const totalRays = sources.length * traceOptions.rayCount;
+    let completedRays = 0;
+    for (const source of sources) {
+      const paths = [];
+      for (let rayIndex = 0; rayIndex < traceOptions.rayCount; rayIndex += 1) {
+        paths.push(...tracePreparedRay(bounds, source, traceOptions, rayIndex));
+        completedRays += 1;
+        if (completedRays % 8 === 0 || completedRays === totalRays) {
+          await asyncCheckpoint(hooks, {
+            phase: 'ray tracing', completed: completedRays, total: totalRays,
+          });
+        }
+      }
+      tracedSources.push({ source, paths });
+    }
+
+    const rayWeight = 1 / traceOptions.rayCount;
+    const pathCount = tracedSources.reduce((total, traced) => total + traced.paths.length, 0);
+    const totalDeposits = preparedFrequencies.length * pathCount;
+    let completedDeposits = 0;
+    const bands = [];
+    for (const frequency of preparedFrequencies) {
+      const energy = new Float64Array(map.width * map.height);
+      const bounceEnergy = new Float64Array(MAX_BOUNCES + 1);
+      for (const traced of tracedSources) {
+        const responseDb = RoomWave.sourceResponseDb(traced.source.type, frequency);
+        const sourceAmplitude = responseDb === -Infinity
+          ? 0
+          : 10 ** ((responseDb + traced.source.gainDb) / 20);
+        const rotation = traced.source.rotation * Math.PI / 180;
+        for (const path of traced.paths) {
+          if (sourceAmplitude > 0) {
+            const directivity = RoomWave.directionalGain(traced.source.type, path.angle - rotation);
+            bounceEnergy[path.bounces] += depositPathEnergy(
+              energy,
+              inside,
+              map,
+              path,
+              sourceAmplitude * directivity * Math.sqrt(rayWeight),
+              frequency,
+              reflection,
+            );
+          }
+          completedDeposits += 1;
+          if (completedDeposits % 16 === 0 || completedDeposits === totalDeposits) {
+            await asyncCheckpoint(hooks, {
+              phase: 'ray energy', completed: completedDeposits, total: totalDeposits,
+            });
+          }
+        }
+      }
+      bands.push({ frequency, energy, bounceEnergy });
+    }
+    return coverageResult(
+      map,
       inside,
-      energy,
       bands,
-      paths,
-      reflectionBounces: MAX_BOUNCES,
-    };
+      tracedSources,
+      sources,
+      traceOptions,
+      selectedSourceId,
+    );
   };
 
   return {
     intersectRaySegment,
     reflect,
     traceSourcePaths,
+    preflightRayCoverage,
     accumulateRayCoverage,
+    accumulateRayCoverageAsync,
   };
 });

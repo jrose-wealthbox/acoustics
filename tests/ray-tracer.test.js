@@ -168,6 +168,70 @@ test('coverage accumulates finite noncoherent energy per requested frequency', (
   assert.ok(coverage.paths.some(path => path.bounces === 5));
 });
 
+test('async coverage matches synchronous physics and yields within ray work', async () => {
+  const snapshot = rectangleRayFixture();
+  const frequencies = [80, 1000];
+  let yields = 0;
+  const asyncCoverage = await R.accumulateRayCoverageAsync(snapshot, frequencies, {
+    isCancelled: () => false,
+    onProgress() {},
+    async yieldControl() { yields += 1; },
+  });
+  const syncCoverage = R.accumulateRayCoverage(snapshot, frequencies);
+
+  assert.deepEqual(asyncCoverage, syncCoverage);
+  assert.ok(yields > 2);
+});
+
+test('async coverage observes cancellation at an internal ray checkpoint', async () => {
+  let cancelled = false;
+  let yields = 0;
+
+  await assert.rejects(() => R.accumulateRayCoverageAsync(
+    rectangleRayFixture(),
+    [80, 1000],
+    {
+      isCancelled: () => cancelled,
+      onProgress() {},
+      async yieldControl() {
+        yields += 1;
+        cancelled = true;
+      },
+    },
+  ), /cancelled/i);
+
+  assert.equal(yields, 1);
+});
+
+test('async coverage reuses an already validated preflight plan', async () => {
+  const snapshot = rectangleRayFixture();
+  const frequencies = [80, 1000];
+  const plan = R.preflightRayCoverage(snapshot, frequencies);
+
+  const result = await R.accumulateRayCoverageAsync(
+    snapshot,
+    frequencies,
+    {
+      isCancelled: () => false,
+      onProgress() {},
+      async yieldControl() {},
+    },
+    plan,
+  );
+
+  assert.deepEqual(result, R.accumulateRayCoverage(snapshot, frequencies));
+  await assert.rejects(() => R.accumulateRayCoverageAsync(
+    snapshot,
+    [...frequencies, 2000],
+    {
+      isCancelled: () => false,
+      onProgress() {},
+      async yieldControl() {},
+    },
+    plan,
+  ), /preflight plan does not match/i);
+});
+
 test('ray energy applies source gain, air loss, and reflection absorption as energy', () => {
   const base = rectangleRayFixture();
   const boosted = rectangleRayFixture();
