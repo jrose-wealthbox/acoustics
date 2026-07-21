@@ -207,13 +207,29 @@ test('default simulation dispatch validates the view before choosing a wave solv
 
   assert.deepEqual(
     await W.runSimulation({ analysis: { view: 'coherent' } }, hooks, dependencies),
-    { model: 'wave' },
+    { model: 'wave', view: 'coherent', coherent: true },
+  );
+  assert.deepEqual(
+    await W.runSimulation(
+      { analysis: { view: 'coherent' } },
+      hooks,
+      { async solveCoherent() { return {}; } },
+    ),
+    { model: 'coherent-wave-pressure', view: 'coherent', coherent: true },
   );
   await assert.rejects(
     () => W.runSimulation({ analysis: { view: 'unknown' } }, hooks, dependencies),
     /broadband, coherent, or paths/i,
   );
   assert.deepEqual(calls, [['coherent', 'function']]);
+  await assert.rejects(
+    () => W.runSimulation(
+      { analysis: { view: 'coherent' } },
+      hooks,
+      { async solveCoherent() { return null; } },
+    ),
+    /simulation result must be an object/i,
+  );
 });
 
 test('default dispatch produces bounded reflection paths with actual ray dependencies', async () => {
@@ -225,6 +241,8 @@ test('default dispatch produces bounded reflection paths with actual ray depende
   }, numericalDependencies);
 
   assert.equal(result.model, 'incoherent-ray-energy');
+  assert.equal(result.view, 'paths');
+  assert.equal(result.coherent, false);
   assert.equal(result.reflectionBounces, 5);
   assert.ok(result.paths.some(path => path.bounces === 5));
   assert.ok(result.energy.every(value => Number.isFinite(value) && value >= 0));
@@ -239,6 +257,8 @@ test('default dispatch combines actual wave and ray results for broadband energy
   }, numericalDependencies);
 
   assert.equal(result.model, 'hybrid-broadband-energy');
+  assert.equal(result.view, 'broadband');
+  assert.equal(result.coherent, false);
   assert.ok(result.wave.model.includes('wave'));
   assert.equal(result.ray.model, 'incoherent-ray-energy');
   assert.ok(result.energy.every(value => Number.isFinite(value) && value >= 0));

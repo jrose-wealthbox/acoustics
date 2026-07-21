@@ -986,6 +986,28 @@ test('field palettes are bounded and distinct by view semantics', () => {
   assert.match(R.fieldColor('broadband', 0.5), /^#[0-9a-f]{6}$/i);
   assert.notEqual(R.fieldColor('broadband', 0.5), R.fieldColor('coherent', 0.5));
 });
+
+test('render plan translates negative room origins into the viewport', () => {
+  const state = renderFixture();
+  state.room.cells = new Set(['-3,-2', '-2,-2']);
+  state.sources[0] = { ...state.sources[0], x: -2.5, y: -1.5 };
+  state.listeningPoint = { ...state.listeningPoint, x: -1.5, y: -1.5 };
+  const plan = R.buildRenderPlan(state, null, { width: 800, height: 560, dpr: 2 });
+  assert.ok(plan.sources[0].screen.x >= 40);
+  assert.ok(plan.sources[0].screen.y >= 40);
+  assert.ok(plan.listeningPoint.screen.x >= 40);
+  assert.ok(plan.listeningPoint.screen.y >= 40);
+});
+
+test('render plan rejects unsafe viewport and transform values before canvas work', () => {
+  const state = renderFixture();
+  assert.throws(() => R.buildRenderPlan(state, null, { width: 80, height: 560, dpr: 2 }), /drawable width/i);
+  assert.throws(() => R.buildRenderPlan(state, null, { width: 800, height: 560, dpr: Infinity }), /device pixel ratio/i);
+  assert.throws(() => R.buildRenderPlan(state, null, { width: 1e308, height: 560, dpr: 1e-308 }), /device pixel ratio|backing store|scale/i);
+  assert.throws(() => R.buildRenderPlan(state, null, { width: 20000, height: 100, dpr: 1 }), /backing dimension/i);
+  assert.throws(() => R.buildRenderPlan({ ...state, ui: { ...state.ui, zoom: 101 } }, null, { width: 800, height: 560, dpr: 2 }), /zoom/i);
+  assert.throws(() => R.buildRenderPlan({ ...state, ui: { ...state.ui, pan: { x: 1_000_001, y: 0 } } }, null, { width: 800, height: 560, dpr: 2 }), /pan/i);
+});
 ```
 
 - [ ] **Step 2: Verify renderer tests fail**
@@ -996,14 +1018,42 @@ Expected: FAIL because `src/renderer.js` is missing.
 
 - [ ] **Step 3: Implement deterministic render plans and layered Canvas drawing**
 
-`buildRenderPlan` converts meters to device-independent screen coordinates and returns ordered layers: blueprint background, room fill, field raster, one-meter grid, walls, contour lines, reflection paths, source cones/icons, listening-point crosshair, and legends. Keep DOM controls outside Canvas. Use a color-vision-safe sequential broadband palette and blue-neutral-amber coherent palette with contours every 3 dB. Scale the backing store by device pixel ratio while keeping hit targets at least 24 CSS pixels.
+`buildRenderPlan` converts meters to device-independent screen coordinates and returns ordered layers: blueprint background, room fill, field raster, one-meter grid, walls, contour lines, reflection paths, source cones/icons, listening-point crosshair, and legends. Keep DOM controls outside Canvas. Use a color-vision-safe sequential broadband palette and blue-neutral-amber coherent palette with contours every 3 dB. Scale the backing store by device pixel ratio while keeping hit targets at least 24 CSS pixels. Require drawable width and height greater than the 80 CSS pixel margin, device-pixel ratio in `[0.25, 8]`, zoom in `(0, 100]`, and each pan component within ±1,000,000 CSS pixels. Bound each derived backing-store axis to 16,384 pixels and total area to 16,777,216 pixels before allocation, then validate the derived scale and every screen coordinate for finiteness. Return an explicit empty-room plan instead of dividing by a zero room span. When a result is present, consume `RoomWave.fieldMetadata(result)` once per immutable result object rather than duplicating wave-versus-ray spacing validation or rescanning arrays during pan and drag updates.
 
 ```js
 const LAYER_ORDER = ['blueprint', 'room', 'field', 'grid', 'walls', 'contours', 'paths', 'sourceCones', 'sources', 'listeningPoint', 'legend'];
+const MAX_CANVAS_PIXELS = 16777216;
+const MAX_CANVAS_DIMENSION = 16384;
+const MAX_ZOOM = 100;
+const MAX_PAN = 1000000;
+const metadataCache = new WeakMap();
+const resultMetadata = result => {
+  if (!result) return null;
+  if (!metadataCache.has(result)) metadataCache.set(result, RoomWave.fieldMetadata(result));
+  return metadataCache.get(result);
+};
 const buildRenderPlan = (state, result, viewport) => {
-  const scale = Math.min((viewport.width - 80) / RoomWave.roomBounds(state.room.cells).maxX, (viewport.height - 80) / RoomWave.roomBounds(state.room.cells).maxY) * state.ui.zoom;
-  const toScreen = point => ({ x:40 + state.ui.pan.x + point.x * scale, y:40 + state.ui.pan.y + point.y * scale });
-  return { layers:LAYER_ORDER, grid:{ metersPerMajorLine:1, scale }, sources:state.sources.map(source => ({ ...source, screen:toScreen(source), hitRadius:Math.max(12, scale * 0.18) })), listeningPoint:{ ...state.listeningPoint, screen:toScreen(state.listeningPoint) }, result, viewport };
+  if (!Number.isFinite(viewport.width) || viewport.width <= 80) throw new RangeError('viewport drawable width must be greater than 80 CSS pixels.');
+  if (!Number.isFinite(viewport.height) || viewport.height <= 80) throw new RangeError('viewport drawable height must be greater than 80 CSS pixels.');
+  if (!Number.isFinite(viewport.dpr) || viewport.dpr < 0.25 || viewport.dpr > 8) throw new RangeError('viewport device pixel ratio must be between 0.25 and 8.');
+  const backingWidth = Math.ceil(viewport.width * viewport.dpr);
+  const backingHeight = Math.ceil(viewport.height * viewport.dpr);
+  if (backingWidth > MAX_CANVAS_DIMENSION || backingHeight > MAX_CANVAS_DIMENSION) throw new RangeError('canvas backing dimension exceeds 16,384 pixels.');
+  if (!Number.isSafeInteger(backingWidth * backingHeight) || backingWidth * backingHeight > MAX_CANVAS_PIXELS) throw new RangeError('canvas backing store exceeds its pixel budget.');
+  if (!Number.isFinite(state.ui.zoom) || state.ui.zoom <= 0 || state.ui.zoom > MAX_ZOOM) throw new RangeError('ui.zoom must be greater than zero and no greater than 100.');
+  if (![state.ui.pan.x, state.ui.pan.y].every(value => Number.isFinite(value) && Math.abs(value) <= MAX_PAN)) throw new RangeError('ui.pan components must be finite and within 1,000,000 CSS pixels.');
+  const bounds = RoomWave.roomBounds(state.room.cells);
+  const roomWidth = bounds.maxX - bounds.minX;
+  const roomHeight = bounds.maxY - bounds.minY;
+  if (roomWidth === 0 || roomHeight === 0) return { layers:LAYER_ORDER, emptyRoom:true, result:null, viewport };
+  const scale = Math.min((viewport.width - 80) / roomWidth, (viewport.height - 80) / roomHeight) * state.ui.zoom;
+  if (!Number.isFinite(scale) || scale <= 0) throw new RangeError('derived room scale must be finite and greater than zero.');
+  const toScreen = point => {
+    const screen = { x:40 + state.ui.pan.x + (point.x - bounds.minX) * scale, y:40 + state.ui.pan.y + (point.y - bounds.minY) * scale };
+    if (!Number.isFinite(screen.x) || !Number.isFinite(screen.y)) throw new RangeError('derived screen coordinates must be finite.');
+    return screen;
+  };
+  return { layers:LAYER_ORDER, emptyRoom:false, grid:{ metersPerMajorLine:1, scale }, field:resultMetadata(result), sources:state.sources.map(source => ({ ...source, screen:toScreen(source), hitRadius:Math.max(12, scale * 0.18) })), listeningPoint:{ ...state.listeningPoint, screen:toScreen(state.listeningPoint) }, result, viewport };
 };
 ```
 
@@ -1011,7 +1061,7 @@ const buildRenderPlan = (state, result, viewport) => {
 
 Run: `node --test tests/renderer.test.js`
 
-Expected: PASS with 2 tests and 0 failures.
+Expected: PASS with 4 tests and 0 failures.
 
 Run: `npm run build`
 

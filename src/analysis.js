@@ -319,6 +319,40 @@
     return { cellCount, spacing, originX, originY, maxX, maxY };
   };
 
+  const fieldMetadata = field => {
+    const metadata = validateField(field);
+    const cellBinned = field.resolution !== undefined && field.dx === undefined;
+    const sampleOffset = cellBinned ? metadata.spacing / 2 : 0;
+    const sampleMinX = metadata.originX + sampleOffset;
+    const sampleMinY = metadata.originY + sampleOffset;
+    const sampleMaxX = sampleMinX + (field.width - 1) * metadata.spacing;
+    const sampleMaxY = sampleMinY + (field.height - 1) * metadata.spacing;
+    const extentMaxX = metadata.originX
+      + (cellBinned ? field.width : field.width - 1) * metadata.spacing;
+    const extentMaxY = metadata.originY
+      + (cellBinned ? field.height : field.height - 1) * metadata.spacing;
+    if (![sampleMinX, sampleMinY, sampleMaxX, sampleMaxY, extentMaxX, extentMaxY].every(Number.isFinite)) {
+      throw new RangeError('Field metadata bounds must be finite derived values.');
+    }
+    return {
+      width: field.width,
+      height: field.height,
+      cellCount: metadata.cellCount,
+      spacing: metadata.spacing,
+      layout: cellBinned ? 'cell-binned' : 'point-sampled',
+      originX: metadata.originX,
+      originY: metadata.originY,
+      sampleMinX,
+      sampleMinY,
+      sampleMaxX,
+      sampleMaxY,
+      extentMinX: metadata.originX,
+      extentMinY: metadata.originY,
+      extentMaxX,
+      extentMaxY,
+    };
+  };
+
   const interpolationCoordinates = (field, metadata, point) => {
     requireObject(point, 'point');
     requireFiniteNumber(point.x, 'point.x');
@@ -612,6 +646,7 @@
     combineBroadbandBands,
     firstVerticalMode,
     verticalTransfer,
+    fieldMetadata,
     resampleMap,
     sampleListeningPoint,
     diagnoseListeningPoint,

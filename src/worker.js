@@ -31,6 +31,20 @@
     }
     return dependencies[name];
   };
+  const RESULT_MODELS = Object.freeze({
+    broadband: 'hybrid-broadband-energy',
+    coherent: 'coherent-wave-pressure',
+    paths: 'incoherent-ray-energy',
+  });
+  const annotateResult = (view, result) => {
+    requireObject(result, 'simulation result');
+    return {
+      ...result,
+      view,
+      coherent: view === 'coherent',
+      model: result.model ?? RESULT_MODELS[view],
+    };
+  };
   const withRayWalls = (snapshot, dependencies) => {
     if (Array.isArray(snapshot.room?.walls)) return snapshot;
     if (!(snapshot.room?.cells instanceof Set)) {
@@ -136,18 +150,27 @@
       if (typeof dependencies.solveCoherent !== 'function') {
         throw new Error('Coherent wave solver is unavailable.');
       }
-      return dependencies.solveCoherent(snapshot, hooks);
+      return annotateResult(
+        'coherent',
+        await dependencies.solveCoherent(snapshot, hooks),
+      );
     }
     if (snapshot.analysis.view === 'broadband') {
-      return runBroadband(snapshot, hooks, dependencies);
+      return annotateResult(
+        'broadband',
+        await runBroadband(snapshot, hooks, dependencies),
+      );
     }
     if (snapshot.analysis.view === 'paths') {
       const raySnapshot = withRayWalls(snapshot, dependencies);
-      return runChunkedRayCoverage(
-        raySnapshot,
-        [snapshot.analysis.frequency],
-        hooks,
-        dependencies,
+      return annotateResult(
+        'paths',
+        await runChunkedRayCoverage(
+          raySnapshot,
+          [snapshot.analysis.frequency],
+          hooks,
+          dependencies,
+        ),
       );
     }
     throw new RangeError('snapshot.analysis.view must be broadband, coherent, or paths.');

@@ -28,6 +28,69 @@ test('listening-point sampling is bilinear and passive', () => {
   assert.deepEqual(field, before);
 });
 
+test('field metadata gives renderers one validated geometry contract', () => {
+  const pointField = {
+    width: 2,
+    height: 3,
+    dx: 0.5,
+    originX: -2,
+    originY: 4,
+    energy: new Float64Array(6),
+  };
+
+  assert.deepEqual(A.fieldMetadata(pointField), {
+    width: 2,
+    height: 3,
+    cellCount: 6,
+    spacing: 0.5,
+    layout: 'point-sampled',
+    originX: -2,
+    originY: 4,
+    sampleMinX: -2,
+    sampleMinY: 4,
+    sampleMaxX: -1.5,
+    sampleMaxY: 5,
+    extentMinX: -2,
+    extentMinY: 4,
+    extentMaxX: -1.5,
+    extentMaxY: 5,
+  });
+
+  const cellField = { ...pointField, dx: undefined, resolution: 0.5 };
+  assert.deepEqual(A.fieldMetadata(cellField), {
+    width: 2,
+    height: 3,
+    cellCount: 6,
+    spacing: 0.5,
+    layout: 'cell-binned',
+    originX: -2,
+    originY: 4,
+    sampleMinX: -1.75,
+    sampleMinY: 4.25,
+    sampleMaxX: -1.25,
+    sampleMaxY: 5.25,
+    extentMinX: -2,
+    extentMinY: 4,
+    extentMaxX: -1,
+    extentMaxY: 5.5,
+  });
+  assert.throws(
+    () => A.fieldMetadata({ ...pointField, energy: new Float64Array(5) }),
+    /width \* height/i,
+  );
+  assert.throws(
+    () => A.fieldMetadata({
+      width: 1,
+      height: 1,
+      resolution: Number.MAX_VALUE,
+      originX: Number.MAX_VALUE,
+      originY: 0,
+      energy: new Float64Array(1),
+    }),
+    /bounds.*finite/i,
+  );
+});
+
 test('first vertical mode changes with ceiling height', () => {
   assert.ok(Math.abs(A.firstVerticalMode(2.5, 343) - 68.6) < 0.01);
   assert.ok(Math.abs(A.firstVerticalMode(3.0, 343) - 57.1667) < 0.01);

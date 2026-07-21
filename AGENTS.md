@@ -7,8 +7,8 @@ audiophiles and acoustical engineers exploring room geometry and loudspeaker
 placement. The final deliverable is one `acoustic-room-simulator.html` file
 that runs directly from `file://` without a server or network access.
 
-Tasks 1 through 9 are complete. Task 10 is the next unfinished task. The app is
-not feature-complete until Tasks 10 through 14 in the implementation plan are
+Tasks 1 through 10 are complete. Task 11 is the next unfinished task. The app is
+not feature-complete until Tasks 11 through 14 in the implementation plan are
 finished and verified.
 
 ## Required Reading and Sources of Truth

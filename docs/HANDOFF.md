@@ -68,6 +68,21 @@ inside map, trace, and energy-deposition loops. Broadband uses exact
 one-third-octave centers from 20 Hz, resamples only after the wave calculation,
 and applies the Task 9 unit-sum raised-cosine wave/ray overlap.
 
+Before Task 11, a bounded architecture review stabilized the renderer-facing
+boundary without changing solver algorithms. Worker-dispatched results now
+self-identify their analysis view and whether the result is coherent, while
+`fieldMetadata(result)` supplies one validated geometry contract with explicit
+point-sampled versus cell-binned layout, sample bounds, and rendered extents.
+The Task 11 plan now handles rooms whose grid origin is translated or negative
+instead of assuming `(0, 0)`.
+
+Repeated validators remain local to their module trust boundaries so the
+standalone worker does not acquire hidden load-order coupling. The synchronous
+and yielding ray loops also remain separate and equivalence-tested rather than
+introducing abstraction overhead into a bounded hot path. Broader loop
+refactoring and performance optimization remain deferred until the integrated
+Task 13 workflow can be profiled with representative browser interactions.
+
 ## Verification at Handoff
 
 The Task 10 implementation and review verified:
@@ -83,6 +98,17 @@ The Task 10 implementation and review verified:
   findings plus a preflight-token validation finding fixed; final re-review
   found no Critical or Important issues
 
+The pre-Task-11 architecture-hardening pass verified:
+
+- `node --test tests/analysis.test.js tests/worker-protocol.test.js` — 40/40 passed
+- `npm test` — 150/150 passed
+- `npm run build` — passed; the Task 14-owned generated HTML was restored
+- JavaScript syntax checks for every changed JavaScript file — passed
+- `git diff --check` — passed
+- Independent review and two re-review rounds — field-layout and renderer-plan
+  derived-bound findings fixed; final re-review found no Critical or Important
+  issues
+
 Run fresh verification after cloning:
 
 ```bash
@@ -92,8 +118,9 @@ git status --short --branch
 ```
 
 `npm run build` generates `acoustic-room-simulator.html`. The application is
-not feature-complete at this handoff: the remaining tasks connect the solvers
-to the worker, renderer, workbench, persistence workflow, and browser QA.
+not feature-complete at this handoff: the remaining tasks connect the completed
+simulation orchestration to the renderer, workbench, persistence workflow, and
+browser QA.
 
 ## Next Work
 

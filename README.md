@@ -10,7 +10,8 @@ runtime package, account, or network requirement.
 
 ## Project Status
 
-The acoustic core is implemented and reviewed through Task 9:
+The acoustic core and simulation orchestration are implemented and reviewed
+through Task 10:
 
 - topology-safe irregular room geometry;
 - bounded project state and undo/redo;
@@ -18,13 +19,15 @@ The acoustic core is implemented and reviewed through Task 9:
 - versioned local persistence and portable JSON;
 - modal math and solver-quality policy;
 - coherent low-frequency wave simulation;
-- noncoherent five-bounce ray tracing; and
+- noncoherent five-bounce ray tracing;
 - energy aggregation, vertical-mode transfer, resampling, and listening-point
-  diagnostics.
+  diagnostics; and
+- versioned worker execution with cancellation, stale-result rejection, and a
+  yielding main-thread fallback.
 
-Tasks 10 through 14 remain: worker orchestration, rendering, workbench UI,
-integrated workflow, and final browser/performance verification. The checked-in
-HTML file is therefore not yet the finished application.
+Tasks 11 through 14 remain: rendering, workbench UI, integrated workflow, and
+final browser/performance verification. The checked-in HTML file is therefore
+not yet the finished application.
 
 See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the exact continuation point.
 
