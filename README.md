@@ -10,8 +10,8 @@ runtime package, account, or network requirement.
 
 ## Project Status
 
-The acoustic core, simulation orchestration, and blueprint renderer are
-implemented and reviewed through Task 11:
+The acoustic core, simulation orchestration, blueprint renderer, and accessible
+engineering workbench are implemented and reviewed through Task 12:
 
 - topology-safe irregular room geometry;
 - bounded project state and undo/redo;
@@ -25,9 +25,11 @@ implemented and reviewed through Task 11:
 - versioned worker execution with cancellation, stale-result rejection, and a
   yielding main-thread fallback; and
 - deterministic layered Canvas render plans with bounded field, contour, path,
-  hit-target, and off-room-source visualization.
+  hit-target, and off-room-source visualization; and
+- semantic workbench controls with bounded room editing, pointer capture,
+  keyboard alternatives, synchronized object controls, and analysis gating.
 
-Tasks 12 through 14 remain: workbench UI, integrated workflow, and final
+Tasks 13 and 14 remain: integrated analysis/persistence workflow and final
 browser/performance verification. The checked-in HTML file is therefore not
 yet the finished application.
 

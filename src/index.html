@@ -1,5 +1,155 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Room/Wave</title><style>/*__INLINE_STYLES__*/</style></head>
-<body><main id="app"><h1>Room/Wave</h1><p id="boot-status">Loading acoustic workbench…</p></main><script>/*__WORKER_BOOTSTRAP__*/</script><script>/*__INLINE_SCRIPTS__*/</script></body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Room/Wave Acoustic Workbench</title>
+  <style>/*__INLINE_STYLES__*/</style>
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">R/W</span>
+        <label class="project-name">
+          <span class="sr-only">Project name</span>
+          <input id="project-name" value="Untitled room" maxlength="80">
+        </label>
+      </div>
+      <div class="calculation-summary" role="status" aria-live="polite" aria-label="Calculation status">
+        <strong id="calculation-status">Preparing workbench</strong>
+        <span id="elapsed-time">Elapsed —</span>
+        <span id="reliable-limit">Reliable range calculated with analysis</span>
+      </div>
+      <button id="cancel-calculation" type="button" hidden>Cancel calculation</button>
+    </header>
+    <div id="error-status" class="error-banner" role="alert" hidden></div>
+
+    <div class="workbench">
+      <aside class="rail left-rail" aria-label="Source library">
+        <section>
+          <div class="section-heading">
+            <p class="eyebrow">Place sound</p>
+            <h1>Source library</h1>
+          </div>
+          <p class="rail-help">Drag onto the blueprint or activate a source to place it by keyboard.</p>
+          <div id="source-library" class="source-library">
+            <button type="button" draggable="true" data-source-type="full-range">
+              <strong>Full-range</strong><span>20 Hz–20 kHz · 90°</span>
+            </button>
+            <button type="button" draggable="true" data-source-type="bookshelf">
+              <strong>Bookshelf</strong><span>50 Hz–20 kHz · 90°</span>
+            </button>
+            <button type="button" draggable="true" data-source-type="subwoofer">
+              <strong>Subwoofer</strong><span>20–120 Hz · Omni</span>
+            </button>
+            <button type="button" draggable="true" data-source-type="hp-bookshelf">
+              <strong>High-passed bookshelf</strong><span>40–120 Hz · 90°</span>
+            </button>
+            <button type="button" draggable="true" data-source-type="lp-subwoofer">
+              <strong>Low-passed subwoofer</strong><span>20–200 Hz · Omni</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="room-tools" aria-labelledby="room-tools-title">
+          <h2 id="room-tools-title">Room geometry</h2>
+          <label class="switch-control">
+            <input id="room-edit-mode" type="checkbox">
+            <span>Room edit mode</span>
+          </label>
+          <div class="button-row" aria-label="Room edit history">
+            <button id="undo-button" type="button" hidden>Undo</button>
+            <button id="redo-button" type="button" hidden>Redo</button>
+          </div>
+        </section>
+
+        <fieldset id="analysis-controls" class="analysis-choices">
+          <legend>Analysis view</legend>
+          <label><input type="radio" name="analysis-view" value="broadband" checked>Broadband coverage<span>Relative energy</span></label>
+          <label><input type="radio" name="analysis-view" value="coherent">Coherent frequency<span>Wave pressure + phase</span></label>
+          <label><input type="radio" name="analysis-view" value="paths">Reflection paths<span>Direct + five bounces</span></label>
+        </fieldset>
+
+        <div class="library-actions">
+          <button type="button" data-open-dialog="preset-dialog">Room presets</button>
+          <button type="button" data-open-dialog="project-dialog">Projects</button>
+        </div>
+      </aside>
+
+      <section class="canvas-column" aria-labelledby="blueprint-title">
+        <div class="canvas-heading">
+          <div>
+            <p class="eyebrow">Floor plan · meters</p>
+            <h2 id="blueprint-title">Acoustic blueprint</h2>
+          </div>
+          <p>Wheel to zoom · drag open space to pan</p>
+        </div>
+        <div class="canvas-frame">
+          <canvas id="room-canvas" class="room-canvas" tabindex="0" aria-label="Editable acoustic room blueprint" aria-describedby="canvas-help"></canvas>
+          <p id="canvas-help" class="sr-only">Select and drag sources, click a free room position to move the Listening point, or use the synchronized object list below.</p>
+          <div id="remove-notice" class="undo-notice" hidden>
+            <button id="remove-undo" type="button">Undo</button>
+          </div>
+        </div>
+        <section class="object-panel" aria-labelledby="object-list-title">
+          <div>
+            <p class="eyebrow">Keyboard controls</p>
+            <h2 id="object-list-title">Canvas objects</h2>
+          </div>
+          <ul id="object-list" class="object-list"></ul>
+        </section>
+      </section>
+
+      <aside id="context-inspector" class="rail right-rail" aria-labelledby="inspector-title">
+        <p class="eyebrow">Inspector</p>
+        <h2 id="inspector-title">Room</h2>
+        <div id="inspector-content" class="inspector-content"></div>
+        <details id="methodology" class="methodology">
+          <summary>Methodology &amp; validation</summary>
+          <p>This exploratory prediction combines a phase-coherent two-dimensional low-frequency wave model with noncoherent geometric ray energy.</p>
+          <p>Ceiling behavior is an analytical uniform-height approximation, not a full three-dimensional solve. A measurement probe tooltip may refer to the Listening point.</p>
+          <p>Grid fidelity, timing, reliable bandwidth, validation modes, and elapsed work appear here when analysis is connected.</p>
+        </details>
+      </aside>
+    </div>
+
+    <section class="analysis-strip" aria-labelledby="frequency-title">
+      <div class="frequency-control">
+        <div>
+          <p class="eyebrow">Focused analysis</p>
+          <h2 id="frequency-title">Frequency</h2>
+        </div>
+        <label>
+          <span class="sr-only">Coherent analysis frequency</span>
+          <input id="frequency-control" type="range" min="20" max="200" step="1" value="74">
+        </label>
+        <output id="frequency-value" for="frequency-control">74 Hz</output>
+      </div>
+      <figure class="response-figure">
+        <canvas id="response-chart" role="img" aria-label="Listening point predicted response chart"></canvas>
+        <figcaption><strong>Listening point</strong> response · available when analysis is connected</figcaption>
+      </figure>
+    </section>
+
+    <dialog id="preset-dialog" aria-labelledby="preset-dialog-title">
+      <form method="dialog">
+        <h2 id="preset-dialog-title">Room presets</h2>
+        <p>Preset storage and recall are connected in the integrated workflow.</p>
+        <button value="close">Close</button>
+      </form>
+    </dialog>
+    <dialog id="project-dialog" aria-labelledby="project-dialog-title">
+      <form method="dialog">
+        <h2 id="project-dialog-title">Projects</h2>
+        <p>Local projects and portable JSON import/export are connected in the integrated workflow.</p>
+        <button value="close">Close</button>
+      </form>
+    </dialog>
+
+    <div id="polite-status" class="sr-only" aria-live="polite"></div>
+  </main>
+  <script>/*__WORKER_BOOTSTRAP__*/</script>
+  <script>/*__INLINE_SCRIPTS__*/</script>
+</body>
 </html>

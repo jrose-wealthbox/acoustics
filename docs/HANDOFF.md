@@ -6,7 +6,7 @@ Updated: 2026-07-22
 
 - Repository: `jrose-wealthbox/acoustics`
 - Branch: `main`
-- Verified Task 11 checkpoint: the `main` commit containing this handoff
+- Verified Task 12 checkpoint: the `main` commit containing this handoff
 - Runtime: Node.js 20 or newer
 
 `main` is the canonical development branch and contains the approved design,
@@ -30,7 +30,7 @@ fresh machine should use this tracked document as the durable status source.
 
 ## Completed Scope
 
-Tasks 1 through 11 are complete and independently reviewed:
+Tasks 1 through 12 are complete and independently reviewed:
 
 1. Dependency-free standalone build and test scaffold
 2. Topology-safe room geometry and edit strokes
@@ -47,6 +47,8 @@ Tasks 1 through 11 are complete and independently reviewed:
 11. Deterministic blueprint render plans, layered Canvas drawing, field
     palettes and contours, reflection paths, source/listening-point hit targets,
     and visibly flagged off-room sources
+12. Semantic engineering workbench, accessible and bounded room/source
+    interactions, synchronized keyboard controls, and invalid-state gating
 
 Task 9 landed in two commits:
 
@@ -107,6 +109,27 @@ so invalid placement is not communicated by color alone. Task 11 intentionally
 does not add DOM workbench controls or connect renderer events to project state;
 that is Task 12.
 
+Task 12 added the semantic top status bar, source library, room-edit tools,
+blueprint canvas, synchronized object list, context inspector, analysis strip,
+dialog shells, live status regions, and a visible inline alert surface. Source
+and listening-point drags use pointer capture and cancel cleanly on capture loss
+or teardown. Removing a source outside the room creates a five-second,
+history-bound Undo opportunity that is invalidated by later history changes.
+
+Room strokes derive cells independently of canvas object hit targets, rasterize
+skipped pointer samples into an edge-connected path, and remain one history
+action. Collection and interpolation are preflighted against a 900-cell budget;
+overflow rejects the entire stroke with visible feedback before unbounded
+allocation. Empty rooms use a bounded edit transform so the first cell can be
+restored. Room edit mode gates source manipulation and analysis, while
+invalid topology and outside sources remain visible and block analysis without
+silently changing project data.
+
+Task 12 intentionally does not connect the controller, persistence actions,
+presets, import/export, or the methodology/validation report. Those integrated
+consumers remain Task 13 scope. The Task 14-owned generated HTML was rebuilt
+for verification and restored before the Task 12 commit.
+
 ## Verification at Handoff
 
 The Task 10 implementation and review verified:
@@ -147,6 +170,19 @@ The Task 11 implementation and review verified:
   non-color off-room-source warnings were checked; final review found no
   Critical or Important issues
 
+The Task 12 implementation and review verified:
+
+- `node --test tests/interactions.test.js` — 20/20 passed
+- `npm test` — 184/184 passed
+- `npm run build` — passed; the Task 14-owned generated HTML was restored
+- JavaScript syntax checks for every changed JavaScript file — passed
+- `git diff --check` — passed
+- Independent review and re-review — room-edit object hit priority, capture-loss
+  cleanup, removal-specific Undo safety, keyboard focus and labels, continuous
+  bounded strokes, edit-mode gating, live and visible errors, pan validation,
+  empty-room recovery, hot-path interpolation preflight, and startup alert
+  visibility were fixed; final re-review found no Critical or Important issues
+
 Run fresh verification after cloning:
 
 ```bash
@@ -162,13 +198,13 @@ workflow, and browser QA.
 
 ## Next Work
 
-Start with Task 12 in the implementation plan. Do not begin integrated presets
-or validation-report work before the workbench UI and accessible interactions
-pass focused review.
+Start with Task 13 in the implementation plan. The workbench UI and accessible
+interactions are complete; connect its existing shells to persistence,
+simulation orchestration, renderer results, and the validation report without
+weakening the Task 12 interaction and error-state contracts.
 
 Remaining tasks:
 
-12. Workbench UI and accessible interactions
 13. Presets, validation report, and integrated analysis workflow
 14. Standalone, numerical, accessibility, and performance verification
 
@@ -193,8 +229,8 @@ Continue the standalone acoustic-room simulator directly on main. Do not create
 an auxiliary worktree unless explicitly requested.
 
 Read AGENTS.md, README.md, docs/HANDOFF.md, the approved design spec, and the
-Task 12 section of the implementation plan in full. Tasks 1-11 are complete and
-independently reviewed. Begin with Task 12 only. Use TDD, preserve the file://
+Task 13 section of the implementation plan in full. Tasks 1-12 are complete and
+independently reviewed. Begin with Task 13 only. Use TDD, preserve the file://
 single-file constraint, validate before allocation or hot work, run focused and
 full verification, and obtain an independent review before updating this
 handoff and moving to another task.

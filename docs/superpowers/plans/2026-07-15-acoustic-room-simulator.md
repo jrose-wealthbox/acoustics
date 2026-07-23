@@ -1086,7 +1086,7 @@ git commit -m "feat: render blueprint acoustic fields"
 - Consumes: state/history, controller, renderer, source catalog, persistence.
 - Produces: `createApp(document, dependencies)`, `interactionToAction(event, context)`, and the approved workbench UI.
 
-- [ ] **Step 1: Write failing pure interaction tests**
+- [x] **Step 1: Write failing pure interaction tests**
 
 ```js
 const test = require('node:test');
@@ -1104,13 +1104,13 @@ test('room edit pointer stroke becomes one history action', () => {
 });
 ```
 
-- [ ] **Step 2: Verify interaction tests fail**
+- [x] **Step 2: Verify interaction tests fail**
 
 Run: `node --test tests/interactions.test.js`
 
 Expected: FAIL because `src/app.js` is missing.
 
-- [ ] **Step 3: Implement the approved engineering workbench**
+- [x] **Step 3: Implement the approved engineering workbench**
 
 Build semantic DOM for the top status bar, draggable source library, room-edit checkbox and contextual undo/redo, canvas, context inspector, analysis-mode controls, frequency strip, response chart, preset/project dialogs, live regions, and collapsed Methodology & validation panel. Implement pointer capture for drags, off-room removal with undoable history, room-edit strokes, pan/zoom, source selection, listening-point placement, 45° keyboard rotation, and keyboard alternatives through the synchronized object list. Disable analysis while topology or source positions are invalid. The UI word is **Listening point**; “measurement probe” appears only in its tooltip/methodology copy.
 
@@ -1123,13 +1123,13 @@ const interactionToAction = (event, context) => {
 };
 ```
 
-- [ ] **Step 4: Run interaction tests and full suite**
+- [x] **Step 4: Run interaction tests and full suite**
 
 Run: `npm test`
 
 Expected: PASS with 0 failures.
 
-- [ ] **Step 5: Commit the workbench**
+- [x] **Step 5: Commit the workbench**
 
 ```bash
 git add src/index.html src/styles.css src/app.js tests/interactions.test.js
