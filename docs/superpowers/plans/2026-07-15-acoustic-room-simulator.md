@@ -960,7 +960,7 @@ git commit -m "feat: run simulations off the UI thread"
 - Consumes: project state and current analysis result.
 - Produces: `buildRenderPlan(state, result, viewport)`, `renderRoom(ctx, plan)`, `hitTest(plan, point)`, and `fieldColor(view, normalizedValue)`.
 
-- [ ] **Step 1: Write failing render-plan tests**
+- [x] **Step 1: Write failing render-plan tests**
 
 ```js
 const test = require('node:test');
@@ -1010,13 +1010,13 @@ test('render plan rejects unsafe viewport and transform values before canvas wor
 });
 ```
 
-- [ ] **Step 2: Verify renderer tests fail**
+- [x] **Step 2: Verify renderer tests fail**
 
 Run: `node --test tests/renderer.test.js`
 
 Expected: FAIL because `src/renderer.js` is missing.
 
-- [ ] **Step 3: Implement deterministic render plans and layered Canvas drawing**
+- [x] **Step 3: Implement deterministic render plans and layered Canvas drawing**
 
 `buildRenderPlan` converts meters to device-independent screen coordinates and returns ordered layers: blueprint background, room fill, field raster, one-meter grid, walls, contour lines, reflection paths, source cones/icons, listening-point crosshair, and legends. Keep DOM controls outside Canvas. Use a color-vision-safe sequential broadband palette and blue-neutral-amber coherent palette with contours every 3 dB. Scale the backing store by device pixel ratio while keeping hit targets at least 24 CSS pixels. Require drawable width and height greater than the 80 CSS pixel margin, device-pixel ratio in `[0.25, 8]`, zoom in `(0, 100]`, and each pan component within ±1,000,000 CSS pixels. Bound each derived backing-store axis to 16,384 pixels and total area to 16,777,216 pixels before allocation, then validate the derived scale and every screen coordinate for finiteness. Return an explicit empty-room plan instead of dividing by a zero room span. When a result is present, consume `RoomWave.fieldMetadata(result)` once per immutable result object rather than duplicating wave-versus-ray spacing validation or rescanning arrays during pan and drag updates.
 
@@ -1057,7 +1057,7 @@ const buildRenderPlan = (state, result, viewport) => {
 };
 ```
 
-- [ ] **Step 4: Run renderer tests and rebuild**
+- [x] **Step 4: Run renderer tests and rebuild**
 
 Run: `node --test tests/renderer.test.js`
 
@@ -1067,7 +1067,7 @@ Run: `npm run build`
 
 Expected: build exits 0 and regenerates the standalone HTML file.
 
-- [ ] **Step 5: Commit rendering**
+- [x] **Step 5: Commit rendering**
 
 ```bash
 git add src/renderer.js src/styles.css tests/renderer.test.js acoustic-room-simulator.html

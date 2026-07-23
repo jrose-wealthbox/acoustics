@@ -10,8 +10,8 @@ runtime package, account, or network requirement.
 
 ## Project Status
 
-The acoustic core and simulation orchestration are implemented and reviewed
-through Task 10:
+The acoustic core, simulation orchestration, and blueprint renderer are
+implemented and reviewed through Task 11:
 
 - topology-safe irregular room geometry;
 - bounded project state and undo/redo;
@@ -21,13 +21,15 @@ through Task 10:
 - coherent low-frequency wave simulation;
 - noncoherent five-bounce ray tracing;
 - energy aggregation, vertical-mode transfer, resampling, and listening-point
-  diagnostics; and
+  diagnostics;
 - versioned worker execution with cancellation, stale-result rejection, and a
-  yielding main-thread fallback.
+  yielding main-thread fallback; and
+- deterministic layered Canvas render plans with bounded field, contour, path,
+  hit-target, and off-room-source visualization.
 
-Tasks 11 through 14 remain: rendering, workbench UI, integrated workflow, and
-final browser/performance verification. The checked-in HTML file is therefore
-not yet the finished application.
+Tasks 12 through 14 remain: workbench UI, integrated workflow, and final
+browser/performance verification. The checked-in HTML file is therefore not
+yet the finished application.
 
 See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the exact continuation point.
 

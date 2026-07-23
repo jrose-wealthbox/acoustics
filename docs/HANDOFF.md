@@ -1,12 +1,12 @@
 # Acoustic Room Simulator Handoff
 
-Updated: 2026-07-20
+Updated: 2026-07-22
 
 ## Checkout
 
 - Repository: `jrose-wealthbox/acoustics`
 - Branch: `main`
-- Verified Task 10 checkpoint: the `main` commit containing this handoff
+- Verified Task 11 checkpoint: the `main` commit containing this handoff
 - Runtime: Node.js 20 or newer
 
 `main` is the canonical development branch and contains the approved design,
@@ -30,7 +30,7 @@ fresh machine should use this tracked document as the durable status source.
 
 ## Completed Scope
 
-Tasks 1 through 10 are complete and independently reviewed:
+Tasks 1 through 11 are complete and independently reviewed:
 
 1. Dependency-free standalone build and test scaffold
 2. Topology-safe room geometry and edit strokes
@@ -44,6 +44,9 @@ Tasks 1 through 10 are complete and independently reviewed:
    sampling, and cautious diagnostic evidence
 10. Versioned worker protocol, stale-result rejection, cancellation, debounced
     scheduling, Blob-worker lifecycle, and bounded yielding main-thread fallback
+11. Deterministic blueprint render plans, layered Canvas drawing, field
+    palettes and contours, reflection paths, source/listening-point hit targets,
+    and visibly flagged off-room sources
 
 Task 9 landed in two commits:
 
@@ -83,6 +86,27 @@ introducing abstraction overhead into a bounded hot path. Broader loop
 refactoring and performance optimization remain deferred until the integrated
 Task 13 workflow can be profiled with representative browser interactions.
 
+Task 11 added a renderer boundary that consumes immutable project snapshots
+and self-identifying analysis results without mutating either. Render plans use
+CSS-pixel coordinates while separately bounding Canvas backing dimensions and
+total pixels. Room geometry, one-meter grid lines, walls, field rasters, 3 dB
+coherent contours, reflection paths, selected directional cones, source icons,
+the listening-point crosshair, and semantic legends are drawn in a fixed layer
+order.
+
+Field validation and normalized display preparation are cached once per result
+object. Point-sampled wave fields and cell-binned ray fields retain their
+different spatial semantics. Contour generation, field samples, path counts,
+path points, room spans, viewport transforms, and backing allocations are
+explicitly bounded before Canvas work. Results whose view or coherence metadata
+does not match current analysis are rejected atomically.
+
+Sources left outside the room after an edit remain in the render plan and keep
+their hit targets. They receive a dashed warning ring and X in addition to color
+so invalid placement is not communicated by color alone. Task 11 intentionally
+does not add DOM workbench controls or connect renderer events to project state;
+that is Task 12.
+
 ## Verification at Handoff
 
 The Task 10 implementation and review verified:
@@ -109,6 +133,20 @@ The pre-Task-11 architecture-hardening pass verified:
   derived-bound findings fixed; final re-review found no Critical or Important
   issues
 
+The Task 11 implementation and review verified:
+
+- `node --test tests/renderer.test.js tests/analysis.test.js tests/build.test.js`
+  — 33/33 passed
+- `npm test` — 164/164 passed
+- `npm run build` — passed and regenerated the standalone HTML from current
+  renderer source
+- JavaScript syntax checks for every changed JavaScript file — passed
+- `git diff --check` — passed
+- Independent review and re-review — coherence metadata, derived field/path
+  coordinates, forged backing dimensions, stale generated output, and
+  non-color off-room-source warnings were checked; final review found no
+  Critical or Important issues
+
 Run fresh verification after cloning:
 
 ```bash
@@ -119,17 +157,17 @@ git status --short --branch
 
 `npm run build` generates `acoustic-room-simulator.html`. The application is
 not feature-complete at this handoff: the remaining tasks connect the completed
-simulation orchestration to the renderer, workbench, persistence workflow, and
-browser QA.
+simulation orchestration and renderer to the workbench, integrated persistence
+workflow, and browser QA.
 
 ## Next Work
 
-Start with Task 11 in the implementation plan. Do not begin workbench UI
-integration before the renderer and render-plan contract pass focused review.
+Start with Task 12 in the implementation plan. Do not begin integrated presets
+or validation-report work before the workbench UI and accessible interactions
+pass focused review.
 
 Remaining tasks:
 
-11. Blueprint renderer and render-plan tests
 12. Workbench UI and accessible interactions
 13. Presets, validation report, and integrated analysis workflow
 14. Standalone, numerical, accessibility, and performance verification
@@ -155,8 +193,8 @@ Continue the standalone acoustic-room simulator directly on main. Do not create
 an auxiliary worktree unless explicitly requested.
 
 Read AGENTS.md, README.md, docs/HANDOFF.md, the approved design spec, and the
-Task 11 section of the implementation plan in full. Tasks 1-10 are complete and
-independently reviewed. Begin with Task 11 only. Use TDD, preserve the file://
+Task 12 section of the implementation plan in full. Tasks 1-11 are complete and
+independently reviewed. Begin with Task 12 only. Use TDD, preserve the file://
 single-file constraint, validate before allocation or hot work, run focused and
 full verification, and obtain an independent review before updating this
 handoff and moving to another task.
